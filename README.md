@@ -4,7 +4,7 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
 
 ![Version](https://img.shields.io/badge/version-4.2.0-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
 
 ![mirrorsedgetweaks](https://github.com/user-attachments/assets/2b98d4a7-cf04-4fdd-808d-f37446384252)
 
@@ -28,7 +28,7 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
 
 ## Requirements
 
-- **OS**: Windows 10 or later
+- **OS**: Windows 10 or later, or Linux via Wine
 - **.NET Runtime**: .NET 8.0 or later
 - **Game**: Mirror's Edge (Steam, GOG, EA App/Xbox Game Pass for PC, Retail platforms). All versions supported (1.0.0.0 - 1.1.0.0 DLC)
 
@@ -41,6 +41,14 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
    - Steam: `C:\Program Files (x86)\Steam\steamapps\common\mirrors edge`
    - GOG: `C:\Program Files (x86)\GOG Galaxy\Games\Mirror's Edge`
    - EA: `C:\Program Files\EA Games\Mirrors Edge`
+
+## Linux (Wine)
+
+1. Install the [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (Windows x64) through Wine
+2. Install core fonts: `winetricks corefonts`
+3. Run: `wine "Mirror's Edge Tweaks.exe"`
+
+Config files in the Proton compatdata prefix are detected automatically. Launch arguments are not supported under Wine.
 
 ## Building from Source
 

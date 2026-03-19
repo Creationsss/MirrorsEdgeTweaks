@@ -35,6 +35,7 @@ namespace MirrorsEdgeTweaks
         private readonly IGraphicsSettingsService _graphicsSettingsService;
 
         private bool _isInitializingResolutionComboBox = false;
+        private bool _isApplyingResolution = false;
         private bool _isInitializingGraphicsSettings = false;
 
         private readonly GameStatusViewModel _gameStatusViewModel;
@@ -363,8 +364,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string configDirectory = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config");
+                string configDirectory = Path.Combine(GetDocumentsTdGamePath(), "Config");
 
                 _config.TdEngineIniPath = Path.Combine(configDirectory, "TdEngine.ini");
                 _config.TdInputIniPath = Path.Combine(configDirectory, "TdInput.ini");
@@ -395,6 +395,11 @@ namespace MirrorsEdgeTweaks
                 _config.TdEngineIniPath = null;
                 _config.TdInputIniPath = null;
             }
+        }
+
+        private string GetDocumentsTdGamePath()
+        {
+            return DocumentsPathHelper.GetMirrorsEdgeTdGameDocumentsPath(_config.GameDirectoryPath);
         }
 
         private void DisplayGameVersion()
@@ -2450,47 +2455,62 @@ namespace MirrorsEdgeTweaks
             }
             
             var currentResolution = GetCurrentResolutionFromConfig();
+            bool matched = false;
+
             if (currentResolution != null)
             {
                 foreach (System.Windows.Controls.ComboBoxItem item in ResolutionComboBox.Items)
                 {
-                    if (item.Tag is ResolutionHelper.Resolution res && 
-                        res.Width == currentResolution.Width && 
+                    if (item.Tag is ResolutionHelper.Resolution res &&
+                        res.Width == currentResolution.Width &&
                         res.Height == currentResolution.Height)
                     {
                         ResolutionComboBox.SelectedItem = item;
+                        matched = true;
                         break;
                     }
                 }
+
+                if (!matched)
+                {
+                    ResolutionComboBox.Text = currentResolution.DisplayText;
+                }
             }
-            
-            if (ResolutionComboBox.SelectedItem == null && ResolutionComboBox.Items.Count > 0)
+
+            if (!matched && ResolutionComboBox.SelectedItem == null && ResolutionComboBox.Items.Count > 0)
             {
-                ResolutionComboBox.SelectedItem = ResolutionComboBox.Items[0];
+                if (currentResolution == null)
+                {
+                    ResolutionComboBox.SelectedItem = ResolutionComboBox.Items[0];
+                }
             }
-            
+
             _isInitializingResolutionComboBox = false;
-            
+
+            int statusWidth = currentResolution?.Width ?? 0;
             if (ResolutionComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem &&
                 selectedItem.Tag is ResolutionHelper.Resolution selectedResolution)
             {
-                bool isCurrentlyActive = false;
-                if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
-                {
-                    isCurrentlyActive = _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
-                }
-                UpdateHighResFixStatus(selectedResolution.Width, isCurrentlyActive);
+                statusWidth = selectedResolution.Width;
             }
+
+            bool isCurrentlyActive = false;
+            if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
+            {
+                isCurrentlyActive = _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
+            }
+            UpdateHighResFixStatus(statusWidth, isCurrentlyActive);
         }
 
         private async void ResolutionComboBox_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
-            if (_isInitializingResolutionComboBox)
+            if (_isInitializingResolutionComboBox || _isApplyingResolution)
                 return;
-                
+
             if (ResolutionComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem &&
                 selectedItem.Tag is ResolutionHelper.Resolution selectedResolution)
             {
+                _isApplyingResolution = true;
                 this.IsEnabled = false;
                 
                 try
@@ -2546,10 +2566,117 @@ namespace MirrorsEdgeTweaks
                 }
                 finally
                 {
+                    _isApplyingResolution = false;
                     this.IsEnabled = true;
                     StatusTextBlock.Text = "Ready.";
                 }
             }
+        }
+
+        private async void ResolutionComboBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            if (e.Key != System.Windows.Input.Key.Enter || _isApplyingResolution)
+                return;
+
+            string text = ResolutionComboBox.Text?.Trim() ?? string.Empty;
+            var resolution = TryParseResolutionText(text);
+
+            if (resolution == null)
+            {
+                DialogHelper.ShowMessage("Invalid Resolution",
+                    "Please enter a resolution in the format: 1920 x 1080 or 1920x1080",
+                    DialogHelper.MessageType.Error);
+                return;
+            }
+
+            if (resolution.Width < 640 || resolution.Height < 480 || resolution.Width > 15360 || resolution.Height > 8640)
+            {
+                DialogHelper.ShowMessage("Invalid Resolution",
+                    "Resolution must be between 640x480 and 15360x8640.",
+                    DialogHelper.MessageType.Error);
+                return;
+            }
+
+            e.Handled = true;
+            _isApplyingResolution = true;
+            this.IsEnabled = false;
+
+            try
+            {
+                bool success = await UpdateResolutionInConfigAsync(resolution.Width, resolution.Height);
+
+                if (!success)
+                {
+                    return;
+                }
+
+                bool userWantsUIScaling = false;
+
+                if (_uiScalingService.ShouldOfferUIScaling(resolution.Width))
+                {
+                    this.IsEnabled = true;
+
+                    userWantsUIScaling = await _uiScalingService.AskUserForUIScalingConfirmationAsync();
+
+                    this.IsEnabled = false;
+
+                    if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
+                    {
+                        ShowProgress("Applying UI scaling...", true);
+
+                        await System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            if (userWantsUIScaling)
+                            {
+                                await _uiScalingService.ApplyUIScalingAsync(resolution.Width, resolution.Height, _config.GameDirectoryPath, HideProgress);
+                            }
+                            else
+                            {
+                                await _uiScalingService.RollbackUIScalingToDefaultsAsync(resolution.Width, resolution.Height, _config.GameDirectoryPath, HideProgress);
+                            }
+                        });
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
+                    {
+                        ShowProgress("Resetting UI scaling...", true);
+
+                        await System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            await _uiScalingService.RollbackUIScalingToDefaultsAsync(resolution.Width, resolution.Height, _config.GameDirectoryPath, HideProgress);
+                        });
+                    }
+                }
+
+                UpdateHighResFixStatus(resolution.Width, userWantsUIScaling);
+
+                ResolutionComboBox.Text = resolution.DisplayText;
+            }
+            finally
+            {
+                _isApplyingResolution = false;
+                this.IsEnabled = true;
+                StatusTextBlock.Text = "Ready.";
+            }
+        }
+
+        private static ResolutionHelper.Resolution? TryParseResolutionText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            string[] parts = text.Split(new[] { 'x', 'X' }, StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 &&
+                int.TryParse(parts[0], out int width) &&
+                int.TryParse(parts[1], out int height) &&
+                width > 0 && height > 0)
+            {
+                return new ResolutionHelper.Resolution { Width = width, Height = height };
+            }
+
+            return null;
         }
 
         private void UpdateHighResFixStatus(int width, bool isActive)
@@ -4146,8 +4273,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdGamePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame");
+                string tdGamePath = GetDocumentsTdGamePath();
                 string publishedPath = Path.Combine(tdGamePath, "Published");
 
                 if (!Directory.Exists(publishedPath))
@@ -4238,8 +4364,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string publishedPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Published");
+                string publishedPath = Path.Combine(GetDocumentsTdGamePath(), "Published");
 
                 string[] filesToDelete = new[]
                 {
@@ -4286,8 +4411,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string publishedPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Published");
+                string publishedPath = Path.Combine(GetDocumentsTdGamePath(), "Published");
 
                 string mainMenuFile = Path.Combine(publishedPath, "CookedPC", "Maps", "Menu", "TdMainMenu.me1");
                 string frontEndFile = Path.Combine(publishedPath, "CookedPC", "UI", "TdUI_FrontEnd.upk");
@@ -4661,8 +4785,7 @@ namespace MirrorsEdgeTweaks
             if (MouseSmoothingComboBox.SelectedItem is not System.Windows.Controls.ComboBoxItem selectedItem)
                 return;
 
-            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string tdInputIniPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+            string tdInputIniPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
             if (!File.Exists(tdInputIniPath))
             {
@@ -4725,8 +4848,7 @@ namespace MirrorsEdgeTweaks
 
         private void LoadMouseSmoothingFromIni()
         {
-            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string tdInputIniPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+            string tdInputIniPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
             if (!File.Exists(tdInputIniPath))
                 return;
@@ -4976,8 +5098,7 @@ namespace MirrorsEdgeTweaks
 
         private void ApplyCm360_Click(object sender, RoutedEventArgs e)
         {
-            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string tdInputIniPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+            string tdInputIniPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
             if (!File.Exists(tdInputIniPath))
             {
@@ -5022,8 +5143,7 @@ namespace MirrorsEdgeTweaks
 
         private void ResetCm360_Click(object sender, RoutedEventArgs e)
         {
-            string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string tdInputIniPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+            string tdInputIniPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
             if (!File.Exists(tdInputIniPath))
             {
@@ -5615,8 +5735,7 @@ namespace MirrorsEdgeTweaks
             {
                 _isLoadingKeybinds = true;
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
                 
                 if (!File.Exists(tdInputPath))
                     return;
@@ -6274,8 +6393,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
                 
                 if (!File.Exists(tdInputPath))
                 {
@@ -6469,8 +6587,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
                 if (!File.Exists(tdInputPath))
                 {
@@ -6607,8 +6724,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
                 if (!File.Exists(tdInputPath))
                     return;
@@ -6643,8 +6759,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
                 if (!File.Exists(tdInputPath))
                 {
@@ -6784,8 +6899,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
 
                 if (!File.Exists(tdInputPath))
                     return;
@@ -6929,8 +7043,7 @@ namespace MirrorsEdgeTweaks
         {
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdInputPath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdInput.ini");
+                string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
                 
                 if (!File.Exists(tdInputPath))
                 {
@@ -7305,8 +7418,7 @@ namespace MirrorsEdgeTweaks
             {
                 _isLoadingInitSettings = true;
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                     return;
@@ -7356,8 +7468,7 @@ namespace MirrorsEdgeTweaks
 
             try
             {
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                 {
@@ -7918,8 +8029,7 @@ namespace MirrorsEdgeTweaks
             {
                 _isLoadingLanguage = true;
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                     return;
@@ -8009,8 +8119,7 @@ namespace MirrorsEdgeTweaks
                 UpdateRegistryValue(@"SOFTWARE\WOW6432Node\EA Games\Mirror's Edge", "Language", languageConfig.RegistryLanguage);
                 UpdateRegistryValue(@"SOFTWARE\WOW6432Node\EA Games\Mirror's Edge", "Locale", languageConfig.Locale);
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                 {
@@ -8390,8 +8499,7 @@ namespace MirrorsEdgeTweaks
             {
                 _isLoadingLanguage = true;
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                     return;
@@ -8458,8 +8566,7 @@ namespace MirrorsEdgeTweaks
 
                 await DownloadAndExtractAudioBackendFiles(downloadUrl);
 
-                string documentsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                string tdEnginePath = Path.Combine(documentsPath, "EA Games", "Mirror's Edge", "TdGame", "Config", "TdEngine.ini");
+                string tdEnginePath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdEngine.ini");
 
                 if (!File.Exists(tdEnginePath))
                 {
