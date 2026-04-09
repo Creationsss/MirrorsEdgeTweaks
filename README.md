@@ -44,9 +44,8 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
 
 ## Linux (Wine)
 
-1. Install the [.NET 8.0 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (Windows x64) through Wine
-2. Install core fonts: `winetricks corefonts`
-3. Run: `wine "Mirror's Edge Tweaks.exe"`
+1. Install core fonts: `winetricks corefonts`
+2. Run: `wine "Mirror's Edge Tweaks.exe"`
 
 Config files in the Proton compatdata prefix are detected automatically. Launch arguments are not supported under Wine.
 
@@ -57,20 +56,23 @@ Config files in the Proton compatdata prefix are detected automatically. Launch 
 - .NET 8.0 SDK
 - Windows 10/11
 
-### Build Steps
+### Build Steps (Windows)
 ```bash
-# Clone the repository
 git clone https://github.com/softsoundd/MirrorsEdgeTweaks.git
 cd MirrorsEdgeTweaks
-
-# Restore NuGet packages
 dotnet restore
-
-# Build the solution
 dotnet build --configuration Release
-
-# The executable will be in: MirrorsEdgeTweaks/bin/Release/net8.0-windows/
 ```
+The executable will be in `MirrorsEdgeTweaks/bin/Release/net8.0-windows/`
+
+### Build Steps (Linux)
+Requires Docker.
+```bash
+git clone https://github.com/softsoundd/MirrorsEdgeTweaks.git
+cd MirrorsEdgeTweaks
+docker run --rm -v "$(pwd):/src" -w /src mcr.microsoft.com/dotnet/sdk:8.0 dotnet publish -p:EnableWindowsTargeting=true -r win-x64 --self-contained true -o /src/publish
+```
+The executable will be in `publish/MirrorsEdgeTweaks.exe`. Run with `wine publish/MirrorsEdgeTweaks.exe`
 
 ### Dependencies
 - **Eliot.UELib** (v1.12.0)
