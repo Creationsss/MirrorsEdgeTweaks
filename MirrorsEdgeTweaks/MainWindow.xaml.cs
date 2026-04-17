@@ -25,7 +25,7 @@ namespace MirrorsEdgeTweaks
     {
         private readonly GameConfiguration _config = new GameConfiguration();
         private readonly PackageOffsets _offsets = new PackageOffsets();
-        
+
         private readonly IPackageService _packageService;
         private readonly IFileService _fileService;
         private readonly IDownloadService _downloadService;
@@ -37,6 +37,7 @@ namespace MirrorsEdgeTweaks
         private bool _isInitializingResolutionComboBox = false;
         private bool _isApplyingResolution = false;
         private bool _isInitializingGraphicsSettings = false;
+        private bool _isProcessingGameDirectory = false;
 
         private readonly GameStatusViewModel _gameStatusViewModel;
         private readonly FovViewModel _fovViewModel;
@@ -51,12 +52,47 @@ namespace MirrorsEdgeTweaks
         private UnrealFlags<PropertyFlag> _originalZoomFovFlags;
 
         private const string IniFileName = "metweaksconfig.ini";
+        private const long SteamMirrorsEdgeExeSize = 31946072;
+
+        private sealed class TdGameFovTouchpointSnapshot
+        {
+            public float? SeqActCameraFov { get; set; }
+            public float? TdMoveVertigoZoomFov { get; set; }
+            public float? UnzoomFovRate { get; set; }
+            public float? NearClippingPlane { get; set; }
+            public float? FovScaleMultiplier { get; set; }
+            public ulong? TdMoveVertigoZoomFovFlags { get; set; }
+
+            public bool HasValues =>
+                SeqActCameraFov.HasValue ||
+                TdMoveVertigoZoomFov.HasValue ||
+                UnzoomFovRate.HasValue ||
+                NearClippingPlane.HasValue ||
+                FovScaleMultiplier.HasValue ||
+                TdMoveVertigoZoomFovFlags.HasValue;
+        }
+
+        private sealed class TdGameTouchpointSnapshot
+        {
+            public TdGameFovTouchpointSnapshot FovSnapshot { get; } = new TdGameFovTouchpointSnapshot();
+            public bool WasHighResFixActive { get; set; }
+            public float? UniformSensitivityTargetValue { get; set; }
+            public string? GamepadButtonType { get; set; }
+            public bool HasLoadLastCheckpointKeybind { get; set; }
+            public bool HasRestartTimeTrialKeybind { get; set; }
+        }
+
+        private sealed class TdGameTouchpointReapplyResult
+        {
+            public List<string> ReappliedSettings { get; } = new List<string>();
+            public List<string> FailedSettings { get; } = new List<string>();
+        }
 
 
         public MainWindow()
         {
             InitializeComponent();
-            
+
             _fileService = new FileService();
             _packageService = new PackageService();
             _downloadService = new DownloadService(_fileService);
@@ -105,26 +141,31 @@ namespace MirrorsEdgeTweaks
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
         {
-            InitializeApp();
+            bool isProcessingStoredDirectory = InitializeApp();
+            if (isProcessingStoredDirectory)
+            {
+                return;
+            }
+
             CheckForConfigFiles();
-            
+
             InitializeResolutionComboBox();
-            
+
             LoadGraphicsSettingsFromIni();
-            
+
             UpdateFPSLimitStatus();
 
             UpdateTweaksScriptsUIStatus();
-            
+
             LoadMouseSmoothingFromIni();
             LoadUniformSensitivityFromPackage();
             LoadGamepadButtonsFromFiles();
             LoadCustomKeybinds();
-            
+
             LoadIntroVideoSetting();
             LoadMainMenuDelaySetting();
             LoadTimeTrialCountdownSetting();
-            
+
             LoadGameLanguageSetting();
             LoadAudioBackendSetting();
         }
@@ -136,8 +177,8 @@ namespace MirrorsEdgeTweaks
                 if (string.IsNullOrEmpty(_config.GameDirectoryPath))
                 {
                     DialogHelper.ShowMessage("Error", "Please select a valid game directory first.", DialogHelper.MessageType.Error);
-                return;
-            }
+                    return;
+                }
 
                 string exePath = Path.Combine(_config.GameDirectoryPath, "Binaries", "MirrorsEdge.exe");
                 if (!File.Exists(exePath))
@@ -146,14 +187,8 @@ namespace MirrorsEdgeTweaks
                     return;
                 }
 
-                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = exePath,
-                    WorkingDirectory = Path.Combine(_config.GameDirectoryPath, "Binaries"),
-                    UseShellExecute = true
-                };
-
-                System.Diagnostics.Process.Start(startInfo);
+                ShowSteamLaunchWarningIfNeeded(exePath);
+                LaunchGameProcess(exePath, string.Empty);
             }
             catch (Exception ex)
             {
@@ -188,7 +223,21 @@ namespace MirrorsEdgeTweaks
                 CommandLineUnlockMode unlockMode = CommandLineUnlockHelper.GetUnlockMode(exePath);
                 if (unlockMode == CommandLineUnlockMode.RuntimeLaunchPatch)
                 {
-                    CommandLineUnlockHelper.LaunchWithRuntimePatch(exePath, launchArguments);
+                    ShowSteamLaunchWarningIfNeeded(exePath);
+                    try
+                    {
+                        CommandLineUnlockHelper.LaunchWithRuntimePatch(exePath, launchArguments);
+                    }
+                    catch (Exception runtimePatchException)
+                    {
+                        LaunchGameProcess(exePath, launchArguments);
+                        DialogHelper.ShowMessage(
+                            "Warning",
+                            "Runtime command line patching failed, so the game was launched without runtime patch guarantees.\n\n" +
+                            $"Details: {runtimePatchException.Message}",
+                            DialogHelper.MessageType.Warning);
+                    }
+
                     return;
                 }
 
@@ -208,15 +257,8 @@ namespace MirrorsEdgeTweaks
                     return;
                 }
 
-                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = exePath,
-                    Arguments = launchArguments,
-                    WorkingDirectory = Path.Combine(_config.GameDirectoryPath, "Binaries"),
-                    UseShellExecute = true
-                };
-
-                System.Diagnostics.Process.Start(startInfo);
+                ShowSteamLaunchWarningIfNeeded(exePath);
+                LaunchGameProcess(exePath, launchArguments);
             }
             catch (Exception ex)
             {
@@ -224,52 +266,181 @@ namespace MirrorsEdgeTweaks
             }
         }
 
-        private void InitializeApp()
+        private void ShowSteamLaunchWarningIfNeeded(string exePath)
+        {
+            if (!IsSteamVersionExecutable(exePath))
+            {
+                return;
+            }
+
+            DialogHelper.ShowMessage(
+                "Steam Launch Warning",
+                "You are playing the Steam version of the game.\n\n" +
+                "Launching the game outside of the Steam client may present you with the \"Application load error\" message.\n\n" +
+                "Please note that launching the game via Tweaks is not required; you may launch the game in Steam as normal.",
+                DialogHelper.MessageType.Warning);
+        }
+
+        private static bool IsSteamVersionExecutable(string exePath)
+        {
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+            {
+                return false;
+            }
+
+            try
+            {
+                return new FileInfo(exePath).Length == SteamMirrorsEdgeExeSize;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void LaunchGameProcess(string exePath, string arguments)
+        {
+            string? workingDirectory = Path.GetDirectoryName(exePath);
+            if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
+            {
+                throw new InvalidOperationException("Could not determine a valid game working directory.");
+            }
+
+            List<string> launchErrors = new List<string>();
+
+            if (TryStartProcess(exePath, arguments, workingDirectory, useShellExecute: false, launchErrors))
+            {
+                return;
+            }
+
+            if (TryStartProcess(exePath, arguments, workingDirectory, useShellExecute: true, launchErrors))
+            {
+                return;
+            }
+
+            if (TryStartViaCmd(exePath, arguments, workingDirectory, launchErrors))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException($"All launch strategies failed. {string.Join(" | ", launchErrors)}");
+        }
+
+        private static bool TryStartProcess(
+            string exePath,
+            string arguments,
+            string workingDirectory,
+            bool useShellExecute,
+            List<string> launchErrors)
+        {
+            try
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = arguments,
+                    WorkingDirectory = workingDirectory,
+                    UseShellExecute = useShellExecute
+                };
+
+                Process? process = Process.Start(startInfo);
+                if (process == null)
+                {
+                    launchErrors.Add($"UseShellExecute={useShellExecute}: Process.Start returned null.");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                launchErrors.Add($"UseShellExecute={useShellExecute}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool TryStartViaCmd(
+            string exePath,
+            string arguments,
+            string workingDirectory,
+            List<string> launchErrors)
+        {
+            try
+            {
+                string cmdArguments = string.IsNullOrWhiteSpace(arguments)
+                    ? $"/c start \"\" \"{exePath}\""
+                    : $"/c start \"\" \"{exePath}\" {arguments}";
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = cmdArguments,
+                    WorkingDirectory = workingDirectory,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                Process? process = Process.Start(startInfo);
+                if (process == null)
+                {
+                    launchErrors.Add("cmd fallback: Process.Start returned null.");
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                launchErrors.Add($"cmd fallback: {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool InitializeApp()
         {
             LoadSettingsFromIni();
-            
+
             if (!string.IsNullOrEmpty(_config.GameDirectoryPath) && _packageService.IsValidGameDirectory(_config.GameDirectoryPath))
             {
                 ProcessGameDirectory(_config.GameDirectoryPath);
+                return true;
             }
             else
             {
                 _config.GameDirectoryPath = null;
                 _gameStatusViewModel.GameDirectoryPath = "No valid directory selected.";
                 DisplayGameVersion();
-                
+
                 DisableMainUI();
+                return false;
             }
         }
 
         private async void ProcessGameDirectory(string path)
         {
+            _isProcessingGameDirectory = true;
             _config.GameDirectoryPath = path;
             _gameStatusViewModel.GameDirectoryPath = _config.GameDirectoryPath;
-            
+
             GameDirectoryPathTextBlock.Text = _config.GameDirectoryPath;
-            
+
             SaveSettingsToIni();
-            DisplayGameVersion();
+            SetTopStatusLoadingState();
 
             this.IsEnabled = false;
 
-            UpdateStatus("Checking packages... This may take a moment...");
+            UpdateStatus("Checking package compression...");
             DownloadProgressBar.IsIndeterminate = true;
             DownloadProgressBar.Visibility = Visibility.Visible;
+            bool loadSucceeded = false;
 
             try
             {
                 await Task.Run(() =>
                 {
-                    ExtractDecompressor();
-                });
-                
-                await Task.Run(() =>
-                {
                     string enginePath = Path.Combine(_config.GameDirectoryPath!, "TdGame", "CookedPC", "Engine.u");
                     string tdGamePath = Path.Combine(_config.GameDirectoryPath!, "TdGame", "CookedPC", "TdGame.u");
-                    
+
                     try
                     {
                         _decompressionService.RunDecompressor(enginePath);
@@ -277,46 +448,143 @@ namespace MirrorsEdgeTweaks
                     }
                     catch (Exception ex)
                     {
-                        Dispatcher.Invoke(() => _gameStatusViewModel.Status = $"Decompressor error: {ex.Message}");
+                        Dispatcher.Invoke(() => _gameStatusViewModel.Status = $"Decompression error: {ex.Message}");
                     }
                 });
 
-                UpdateStatus("Loading packages...");
+                UpdateStatus("Loading package data...");
                 await Task.Run(() => LoadPackages());
 
+                UpdateStatus("Refreshing status indicators...");
                 CheckForConfigFiles();
                 InitializeResolutionComboBox();
-                
+
                 LoadGraphicsSettingsFromIni();
-                
+
                 LoadPhysXFPSSetting();
                 LoadCinematicFaithSetting();
-                
+
                 UpdateFPSLimitStatus();
                 UpdateTweaksScriptsUIStatus();
-                
+
                 LoadMouseSmoothingFromIni();
                 LoadUniformSensitivityFromPackage();
                 LoadGamepadButtonsFromFiles();
                 LoadCustomKeybinds();
                 LoadMacroKeybinds();
-                
+
                 LoadIntroVideoSetting();
                 LoadMainMenuDelaySetting();
                 LoadTimeTrialCountdownSetting();
-                
+
                 LoadGameLanguageSetting();
                 LoadAudioBackendSetting();
+                loadSucceeded = true;
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"Error loading game data: {ex.Message}");
             }
             finally
             {
                 DownloadProgressBar.Visibility = Visibility.Collapsed;
                 DownloadProgressBar.IsIndeterminate = false;
-                
+
                 this.IsEnabled = true;
-                
+                _isProcessingGameDirectory = false;
+                RefreshStartupStatusIndicators();
+                if (loadSucceeded)
+                {
+                    UpdateStatus("Ready.");
+                }
+
                 EnableMainUI();
             }
+        }
+
+        private void SetTopStatusLoadingState()
+        {
+            _gameStatusViewModel.GameVersion = "Game Version: Loading...";
+            GameVersionTextBlock.Text = _gameStatusViewModel.GameVersion;
+
+            _gameStatusViewModel.ConfigStatus = "Documents Configs: Checking...";
+            _gameStatusViewModel.ConfigStatusForeground = System.Windows.Media.Brushes.Gray;
+            ConfigStatusTextBlock.Text = _gameStatusViewModel.ConfigStatus;
+            ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.Gray;
+
+            _consoleViewModel.ConsoleStatus = "Checking...";
+            _consoleViewModel.ConsoleStatusForeground = System.Windows.Media.Brushes.Gray;
+            ConsoleStatus.Text = _consoleViewModel.ConsoleStatus;
+            ConsoleStatus.Foreground = _consoleViewModel.ConsoleStatusForeground;
+
+            _tweaksScriptsViewModel.TweaksScriptsStatus = "Checking...";
+            _tweaksScriptsViewModel.TweaksScriptsStatusForeground = System.Windows.Media.Brushes.Gray;
+            TweaksScriptsStatus.Text = _tweaksScriptsViewModel.TweaksScriptsStatus;
+            TweaksScriptsStatus.Foreground = _tweaksScriptsViewModel.TweaksScriptsStatusForeground;
+
+            TweaksScriptsUIStatus.Text = "Checking...";
+            TweaksScriptsUIStatus.Foreground = System.Windows.Media.Brushes.Gray;
+
+            _unlockedConfigsViewModel.UnlockedConfigsStatus = "Checking...";
+            _unlockedConfigsViewModel.UnlockedConfigsStatusForeground = System.Windows.Media.Brushes.Gray;
+            UnlockedConfigsStatus.Text = _unlockedConfigsViewModel.UnlockedConfigsStatus;
+            UnlockedConfigsStatus.Foreground = _unlockedConfigsViewModel.UnlockedConfigsStatusForeground;
+
+            SetLaunchArgumentsPatchStatus("Checking executable...", System.Windows.Media.Brushes.Gray);
+
+            _fovViewModel.HorPlusStatus = "Scaling: Checking...";
+            HorPlusStatus.Text = _fovViewModel.HorPlusStatus;
+            ClippingPlaneStatus.Text = "Clipping Fix: Checking...";
+            FovAgnosticSensStatus.Text = "Sensitivity: Checking...";
+
+            HighResFixStatus.Text = "High-Res Fix Checking...";
+            HighResFixStatus.Foreground = System.Windows.Media.Brushes.Gray;
+
+            FPSLimitStatus.Text = "Checking...";
+            FPSLimitStatus.Foreground = System.Windows.Media.Brushes.Gray;
+        }
+
+        private void RefreshStartupStatusIndicators()
+        {
+            DisplayGameVersion();
+            CheckForConfigFiles();
+            UpdateConsoleStatus();
+            UpdateTweaksScriptsStatus();
+            UpdateTweaksScriptsUIStatus();
+            SetupUnlockedConfigsEditor();
+            RefreshHighResFixStatusFromCurrentSelection();
+            UpdateFPSLimitStatus();
+
+            if (_package != null && _tdGamePackage != null)
+            {
+                UpdateStatusDisplays();
+            }
+        }
+
+        private void RefreshHighResFixStatusFromCurrentSelection()
+        {
+            if (ResolutionComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem &&
+                selectedItem.Tag is ResolutionHelper.Resolution selectedResolution)
+            {
+                bool isCurrentlyActive = false;
+                if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
+                {
+                    try
+                    {
+                        isCurrentlyActive = _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
+                    }
+                    catch
+                    {
+                        isCurrentlyActive = false;
+                    }
+                }
+
+                UpdateHighResFixStatus(selectedResolution.Width, isCurrentlyActive);
+                return;
+            }
+
+            HighResFixStatus.Text = "High-Res Fix N/A";
+            HighResFixStatus.Foreground = System.Windows.Media.Brushes.Gray;
         }
 
         private void EnableMainUI()
@@ -329,25 +597,12 @@ namespace MirrorsEdgeTweaks
             MainTabControl.IsEnabled = false;
         }
 
-        private void ExtractDecompressor()
-        {
-            try
-            {
-                _decompressionService.ExtractDecompressor();
-            }
-            catch (Exception ex)
-            {
-                DialogHelper.ShowMessage("Error", $"Error extracting decompressor: {ex.Message}", DialogHelper.MessageType.Error);
-                System.Windows.Application.Current.Shutdown();
-            }
-        }
-
         private void DecompressPackages()
         {
             UpdateStatus("Checking package compression...");
             string enginePath = Path.Combine(_config.GameDirectoryPath!, "TdGame", "CookedPC", "Engine.u");
             string tdGamePath = Path.Combine(_config.GameDirectoryPath!, "TdGame", "CookedPC", "TdGame.u");
-            
+
             try
             {
                 _decompressionService.RunDecompressor(enginePath);
@@ -355,7 +610,7 @@ namespace MirrorsEdgeTweaks
             }
             catch (Exception ex)
             {
-                _gameStatusViewModel.Status = $"Decompressor error: {ex.Message}";
+                _gameStatusViewModel.Status = $"Decompression error: {ex.Message}";
             }
         }
 
@@ -373,15 +628,21 @@ namespace MirrorsEdgeTweaks
                 {
                     _gameStatusViewModel.ConfigStatus = "Documents Configs: Found";
                     _gameStatusViewModel.ConfigStatusForeground = System.Windows.Media.Brushes.Green;
-                    ConfigStatusTextBlock.Text = "Documents Configs: Found";
-                    ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.Green;
+                    if (!_isProcessingGameDirectory)
+                    {
+                        ConfigStatusTextBlock.Text = "Documents Configs: Found";
+                        ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.Green;
+                    }
                 }
                 else
                 {
                     _gameStatusViewModel.ConfigStatus = "Documents Configs: Not Found";
                     _gameStatusViewModel.ConfigStatusForeground = System.Windows.Media.Brushes.OrangeRed;
-                    ConfigStatusTextBlock.Text = "Documents Configs: Not Found";
-                    ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.OrangeRed;
+                    if (!_isProcessingGameDirectory)
+                    {
+                        ConfigStatusTextBlock.Text = "Documents Configs: Not Found";
+                        ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.OrangeRed;
+                    }
                     _config.TdEngineIniPath = null;
                     _config.TdInputIniPath = null;
                 }
@@ -390,8 +651,11 @@ namespace MirrorsEdgeTweaks
             {
                 _gameStatusViewModel.ConfigStatus = "Documents Configs: Error";
                 _gameStatusViewModel.ConfigStatusForeground = System.Windows.Media.Brushes.Red;
-                ConfigStatusTextBlock.Text = "Documents Configs: Error";
-                ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.Red;
+                if (!_isProcessingGameDirectory)
+                {
+                    ConfigStatusTextBlock.Text = "Documents Configs: Error";
+                    ConfigStatusTextBlock.Foreground = System.Windows.Media.Brushes.Red;
+                }
                 _config.TdEngineIniPath = null;
                 _config.TdInputIniPath = null;
             }
@@ -406,7 +670,7 @@ namespace MirrorsEdgeTweaks
         {
             var gameVersion = GameVersionHelper.GetGameVersion(_config.GameDirectoryPath ?? string.Empty);
             _gameStatusViewModel.GameVersion = gameVersion.DisplayText;
-            
+
             GameVersionTextBlock.Text = gameVersion.DisplayText;
             UpdateLaunchArgumentsPatchStatus();
         }
@@ -419,6 +683,11 @@ namespace MirrorsEdgeTweaks
 
         private void UpdateLaunchArgumentsPatchStatus()
         {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
             if (string.IsNullOrEmpty(_config.GameDirectoryPath))
             {
                 SetLaunchArgumentsPatchStatus("N/A (No game directory selected)", System.Windows.Media.Brushes.Gray);
@@ -557,8 +826,9 @@ namespace MirrorsEdgeTweaks
             {
                 _packageService.DisposePackage(_package);
                 _packageService.DisposePackage(_tdGamePackage);
-                
-                Dispatcher.Invoke(() => {
+
+                Dispatcher.Invoke(() =>
+                {
                     _gameStatusViewModel.IsGameTweaksEnabled = false;
                     UpdateStatus("Loading packages...");
                 });
@@ -571,21 +841,24 @@ namespace MirrorsEdgeTweaks
 
                 if (_package == null || _tdGamePackage == null)
                 {
-                    Dispatcher.Invoke(() => {
+                    Dispatcher.Invoke(() =>
+                    {
                         DialogHelper.ShowMessage("Error", "Failed to load one or more packages (Engine.u, TdGame.u).", DialogHelper.MessageType.Error);
                         UpdateStatus("Failed to load packages.");
                     });
                     return;
                 }
 
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     DetectTdGameVersion();
                 });
                 SetupEditors();
             }
             catch (Exception ex)
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     DialogHelper.ShowMessage("Error", $"An error occurred: {ex.Message}", DialogHelper.MessageType.Error);
                     _gameStatusViewModel.Status = "Error loading packages.";
                 });
@@ -604,18 +877,25 @@ namespace MirrorsEdgeTweaks
             bool unlockedConfigsSuccess = SetupUnlockedConfigsEditor();
             Dispatcher.Invoke(() => UpdateTweaksScriptsStatus());
 
-            Dispatcher.Invoke(() => {
+            Dispatcher.Invoke(() =>
+            {
                 if (fovSuccess || arSuccess || consoleSuccess)
                 {
                     GameTweaksGrid.IsEnabled = true;
-                    UpdateStatusDisplays();
-                    UpdateStatus("Ready.");
+                    if (!_isProcessingGameDirectory)
+                    {
+                        UpdateStatusDisplays();
+                        UpdateStatus("Ready.");
+                    }
                 }
                 else
                 {
                     GameTweaksGrid.IsEnabled = false;
-                    DialogHelper.ShowMessage("Warning", "Could not locate any editable properties in the game files.", DialogHelper.MessageType.Warning);
-                    UpdateStatus("Ready.");
+                    if (!_isProcessingGameDirectory)
+                    {
+                        DialogHelper.ShowMessage("Warning", "Could not locate any editable properties in the game files.", DialogHelper.MessageType.Warning);
+                        UpdateStatus("Ready.");
+                    }
                 }
             });
         }
@@ -725,8 +1005,9 @@ namespace MirrorsEdgeTweaks
             _offsets.TdMoveVertigoZoomFovFlagsOffset = -1;
             _offsets.NearClippingPlaneOffset = -1;
             _offsets.FovScaleMultiplierOffset = -1;
-            
-            Dispatcher.Invoke(() => {
+
+            Dispatcher.Invoke(() =>
+            {
                 _fovViewModel.CurrentFovValue = "N/A";
                 CurrentFovValue.Text = "N/A";
             });
@@ -755,17 +1036,18 @@ namespace MirrorsEdgeTweaks
                 var fovProperty = cameraCDO.Properties.FirstOrDefault(p => p.Name == "DefaultFOV");
                 if (fovProperty != null && float.TryParse(fovProperty.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float currentFov))
                 {
-                    Dispatcher.Invoke(() => {
+                    Dispatcher.Invoke(() =>
+                    {
                         string fovValue = Math.Round(currentFov).ToString(CultureInfo.InvariantCulture) + "° (horizontal)";
                         _fovViewModel.CurrentFovValue = fovValue;
                         CurrentFovValue.Text = fovValue;
-                        
+
                         if (string.IsNullOrEmpty(NewFovValue.Text) || NewFovValue.Text == "90" || NewFovValue.Text == "N/A")
                         {
                             NewFovValue.Text = Math.Round(currentFov).ToString(CultureInfo.InvariantCulture);
                         }
                     });
-                    
+
                     _offsets.CameraFovOffset = _offsetFinderService.FindPropertyOffsetByName(cameraCDO, "DefaultFOV", currentFov, _package, _config.EnginePackagePath);
                 }
             }
@@ -863,8 +1145,9 @@ namespace MirrorsEdgeTweaks
             if (_package == null) return false;
 
             _offsets.AspectRatioOffset = -1;
-            
-            Dispatcher.Invoke(() => {
+
+            Dispatcher.Invoke(() =>
+            {
                 _fovViewModel.CurrentAspectRatioValue = "N/A";
                 _fovViewModel.CommonAspectRatioValue = "";
                 CurrentAspectRatioValue.Text = "N/A";
@@ -886,13 +1169,14 @@ namespace MirrorsEdgeTweaks
                     {
                         float currentAR = _offsetFinderService.ReadFloatFromPackage(_package, _offsets.AspectRatioOffset);
                         var (decimalFormat, commonFormat) = FormatAspectRatio(currentAR);
-                        
-                        Dispatcher.Invoke(() => {
+
+                        Dispatcher.Invoke(() =>
+                        {
                             _fovViewModel.CurrentAspectRatioValue = decimalFormat;
                             _fovViewModel.CommonAspectRatioValue = commonFormat;
                             CurrentAspectRatioValue.Text = decimalFormat;
                             CommonAspectRatioValue.Text = commonFormat;
-                            
+
                             if (string.IsNullOrEmpty(AspectRatioWidth.Text) || AspectRatioWidth.Text == "16" || AspectRatioWidth.Text == "N/A")
                             {
                                 AspectRatioWidth.Text = Math.Round(currentAR * 9).ToString(CultureInfo.InvariantCulture);
@@ -902,7 +1186,7 @@ namespace MirrorsEdgeTweaks
                                 AspectRatioHeight.Text = "9";
                             }
                         });
-                        
+
                         return true;
                     }
                 }
@@ -915,7 +1199,8 @@ namespace MirrorsEdgeTweaks
             if (_package == null) return false;
 
             _offsets.ConsoleHeightOffset = -1;
-            Dispatcher.Invoke(() => {
+            Dispatcher.Invoke(() =>
+            {
                 _consoleViewModel.IsInstallConsoleEnabled = false;
                 _consoleViewModel.IsUninstallConsoleEnabled = false;
             });
@@ -945,7 +1230,12 @@ namespace MirrorsEdgeTweaks
 
         private void UpdateConsoleStatus()
         {
-            if (_package == null || string.IsNullOrEmpty(_config.GameDirectoryPath) || string.IsNullOrEmpty(_config.TdEngineIniPath)) return;
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
+            if (_package == null || string.IsNullOrEmpty(_config.GameDirectoryPath)) return;
 
             string consoleFilePath = Path.Combine(_config.GameDirectoryPath, "TdGame", "CookedPC", "MirrorsEdgeConsole.u");
             bool fileExists = _fileService.FileExists(consoleFilePath);
@@ -964,10 +1254,18 @@ namespace MirrorsEdgeTweaks
             bool configModified = false;
             try
             {
-                if (_config.TdEngineIniPath != null && _config.TdInputIniPath != null)
+                string configDirectory = Path.Combine(GetDocumentsTdGamePath(), "Config");
+                string tdEngineIniPath = !string.IsNullOrEmpty(_config.TdEngineIniPath)
+                    ? _config.TdEngineIniPath
+                    : Path.Combine(configDirectory, "TdEngine.ini");
+                string tdInputIniPath = !string.IsNullOrEmpty(_config.TdInputIniPath)
+                    ? _config.TdInputIniPath
+                    : Path.Combine(configDirectory, "TdInput.ini");
+
+                if (_fileService.FileExists(tdEngineIniPath) && _fileService.FileExists(tdInputIniPath))
                 {
-                    string? consoleClassName = ConfigFileHelper.ReadIniValue(_config.TdEngineIniPath, "Engine.Engine", "ConsoleClassName");
-                    string? typeKey = ConfigFileHelper.ReadIniValue(_config.TdInputIniPath, "Engine.Console", "TypeKey");
+                    string? consoleClassName = ConfigFileHelper.ReadIniValue(tdEngineIniPath, "Engine.Engine", "ConsoleClassName");
+                    string? typeKey = ConfigFileHelper.ReadIniValue(tdInputIniPath, "Engine.Console", "TypeKey");
 
                     if (!string.IsNullOrEmpty(consoleClassName) && consoleClassName.Equals("MirrorsEdgeConsole.MirrorsEdgeConsole", StringComparison.OrdinalIgnoreCase) &&
                         !string.IsNullOrEmpty(typeKey) && typeKey.Equals("Tab", StringComparison.OrdinalIgnoreCase))
@@ -982,7 +1280,8 @@ namespace MirrorsEdgeTweaks
 
             if (fileExists && heightModified && configModified)
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _consoleViewModel.ConsoleStatus = "Installed";
                     _consoleViewModel.ConsoleStatusForeground = System.Windows.Media.Brushes.Green;
                     ConsoleStatus.Text = "Installed";
@@ -991,7 +1290,8 @@ namespace MirrorsEdgeTweaks
             }
             else if (fileExists || heightModified || configModified)
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _consoleViewModel.ConsoleStatus = "Partially Installed";
                     _consoleViewModel.ConsoleStatusForeground = System.Windows.Media.Brushes.Orange;
                     ConsoleStatus.Text = "Partially Installed";
@@ -1000,7 +1300,8 @@ namespace MirrorsEdgeTweaks
             }
             else
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _consoleViewModel.ConsoleStatus = "Not Installed";
                     _consoleViewModel.ConsoleStatusForeground = System.Windows.Media.Brushes.Gray;
                     ConsoleStatus.Text = "Not Installed";
@@ -1009,23 +1310,42 @@ namespace MirrorsEdgeTweaks
             }
         }
 
-        private void UpdateTweaksScriptsStatus()
+        private bool IsTweaksScriptsInstalled()
         {
             if (string.IsNullOrEmpty(_config.GameDirectoryPath))
             {
-                Dispatcher.Invoke(() => {
+                return false;
+            }
+
+            string scriptFilePath = Path.Combine(_config.GameDirectoryPath, "TdGame", "CookedPC", "MirrorsEdgeTweaksScripts.u");
+            return _fileService.FileExists(scriptFilePath);
+        }
+
+        private void UpdateTweaksScriptsStatus()
+        {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_config.GameDirectoryPath))
+            {
+                Dispatcher.Invoke(() =>
+                {
                     _tweaksScriptsViewModel.TweaksScriptsStatus = "N/A";
                     _tweaksScriptsViewModel.TweaksScriptsStatusForeground = System.Windows.Media.Brushes.Gray;
                     TweaksScriptsStatus.Text = "N/A";
                     TweaksScriptsStatus.Foreground = System.Windows.Media.Brushes.Gray;
                 });
+                UpdateTweaksScriptsDependencyUI(isTweaksScriptsInstalled: false);
                 return;
             }
 
-            string scriptFilePath = Path.Combine(_config.GameDirectoryPath, "TdGame", "CookedPC", "MirrorsEdgeTweaksScripts.u");
-            if (_fileService.FileExists(scriptFilePath))
+            bool tweaksScriptsInstalled = IsTweaksScriptsInstalled();
+            if (tweaksScriptsInstalled)
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _tweaksScriptsViewModel.TweaksScriptsStatus = "Installed";
                     _tweaksScriptsViewModel.TweaksScriptsStatusForeground = System.Windows.Media.Brushes.Green;
                     TweaksScriptsStatus.Text = "Installed";
@@ -1034,13 +1354,42 @@ namespace MirrorsEdgeTweaks
             }
             else
             {
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _tweaksScriptsViewModel.TweaksScriptsStatus = "Not Installed";
                     _tweaksScriptsViewModel.TweaksScriptsStatusForeground = System.Windows.Media.Brushes.Gray;
                     TweaksScriptsStatus.Text = "Not Installed";
                     TweaksScriptsStatus.Foreground = System.Windows.Media.Brushes.Gray;
                 });
             }
+
+            UpdateTweaksScriptsDependencyUI(tweaksScriptsInstalled);
+        }
+
+        private void UpdateTweaksScriptsDependencyUI(bool isTweaksScriptsInstalled)
+        {
+            void ApplyDependencyState()
+            {
+                bool hasGameDirectory = !string.IsNullOrEmpty(_config.GameDirectoryPath);
+                bool canInstallTweaksScriptsUi = isTweaksScriptsInstalled;
+
+                InstallTweaksScriptsUIButton.IsEnabled = canInstallTweaksScriptsUi;
+                InstallTweaksScriptsUIButton.ToolTip = canInstallTweaksScriptsUi
+                    ? "Install Tweaks Scripts UI."
+                    : "Install Tweaks Scripts first to enable this installer.";
+
+                TweaksScriptsUIRequiresScriptsText.Visibility = hasGameDirectory && !canInstallTweaksScriptsUi
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
+
+            if (Dispatcher.CheckAccess())
+            {
+                ApplyDependencyState();
+                return;
+            }
+
+            Dispatcher.Invoke(ApplyDependencyState);
         }
 
         private double DegreesToRadians(double degrees) => degrees * (Math.PI / 180.0);
@@ -1119,11 +1468,11 @@ namespace MirrorsEdgeTweaks
                     "Do you want to set a compensated near clipping plane to minimise viewmodel clipping with the new FOV?");
                 applyClippingFix = clipResult;
 
-            if (applyClippingFix)
-            {
-                double defaultFovRad = DegreesToRadians(90);
-                double newFovRad = DegreesToRadians(finalFovToWrite);
-                newClippingPlaneValue = (float)(10.0 * (Math.Tan(defaultFovRad / 2.0) / Math.Tan(newFovRad / 2.0)));
+                if (applyClippingFix)
+                {
+                    double defaultFovRad = DegreesToRadians(90);
+                    double newFovRad = DegreesToRadians(finalFovToWrite);
+                    newClippingPlaneValue = (float)(10.0 * (Math.Tan(defaultFovRad / 2.0) / Math.Tan(newFovRad / 2.0)));
                 }
             }
 
@@ -1150,7 +1499,7 @@ namespace MirrorsEdgeTweaks
 
             try
             {
-                await Task.Run(() => 
+                await Task.Run(() =>
                 {
                     _package?.Dispose();
                     _tdGamePackage?.Dispose();
@@ -1260,10 +1609,10 @@ namespace MirrorsEdgeTweaks
             {
                 DownloadProgressBar.Visibility = Visibility.Collapsed;
                 DownloadProgressBar.IsIndeterminate = false;
-                
+
                 await Task.Delay(500);
                 await Task.Run(() => LoadPackages());
-                
+
                 this.IsEnabled = true;
             }
         }
@@ -1281,6 +1630,8 @@ namespace MirrorsEdgeTweaks
 
                 if (result)
                 {
+                    TdGameTouchpointSnapshot touchpointSnapshot = CaptureTdGameTouchpointSnapshot();
+
                     _packageService.DisposePackage(_package);
                     _packageService.DisposePackage(_tdGamePackage);
                     _package = null;
@@ -1288,12 +1639,12 @@ namespace MirrorsEdgeTweaks
 
                     _gameStatusViewModel.IsGameTweaksEnabled = false;
 
-                    await DownloadAndExtractTdGameAsync(selectedVersionName);
+                    await DownloadAndExtractTdGameAsync(selectedVersionName, touchpointSnapshot);
                 }
             }
         }
 
-        private async Task DownloadAndExtractTdGameAsync(string selectedVersionName)
+        private async Task DownloadAndExtractTdGameAsync(string selectedVersionName, TdGameTouchpointSnapshot touchpointSnapshot)
         {
             if (string.IsNullOrEmpty(_config.GameDirectoryPath))
             {
@@ -1314,11 +1665,16 @@ namespace MirrorsEdgeTweaks
             _downloadProgressViewModel.IsDownloadProgressVisible = true;
             _downloadProgressViewModel.IsDownloadProgressIndeterminate = false;
             _gameStatusViewModel.Status = $"Downloading '{selectedVersionName}'...";
-            
+
+            this.IsEnabled = false;
             GameTweaksGrid.IsEnabled = false;
             DownloadProgressBar.Visibility = System.Windows.Visibility.Visible;
             DownloadProgressBar.IsIndeterminate = false;
             UpdateStatus($"Downloading '{selectedVersionName}'...");
+
+            bool installSucceeded = false;
+            bool packagesLoadedAtEnd = false;
+            TdGameTouchpointReapplyResult reapplyResult = new TdGameTouchpointReapplyResult();
 
             try
             {
@@ -1378,19 +1734,7 @@ namespace MirrorsEdgeTweaks
                     File.Delete(tempZipPath);
                 }
 
-                LoadLastCheckpointKeyTextBox.Text = string.Empty;
-                RestartTimeTrialKeyTextBox.Text = string.Empty;
-
-                _gameStatusViewModel.Status = $"Successfully installed.";
-                UpdateStatus($"Successfully installed.");
-                await DialogHelper.ShowMessageAsync("Success", $"Successfully downloaded and installed '{selectedVersionName}' TdGame version.\n\n" +
-                "Note: If any of the following settings were previously changed, they have been reset to their default values and will need to be reapplied:\n\n" +
-                "• FOV (near clip plane, FOV-agnostic sensitivity, and various other FOV fixes)\n\n" +
-                "• Crosshair and cursor scaling via the high resolution fix\n\n" + 
-                "• 'Uniform Sensitivity' input setting\n\n" +
-                "• 'Gamepad Buttons' setting\n\n" +
-                "• 'Load Last Checkpoint' and 'Restart Time Trial' keybinds",
-                DialogHelper.MessageType.Success);
+                installSucceeded = true;
             }
             catch (Exception ex)
             {
@@ -1399,16 +1743,358 @@ namespace MirrorsEdgeTweaks
             }
             finally
             {
-                _downloadProgressViewModel.IsDownloadProgressVisible = false;
-                _downloadProgressViewModel.DownloadProgressValue = 0;
-                
-                DownloadProgressBar.Visibility = System.Windows.Visibility.Collapsed;
-                DownloadProgressBar.Value = 0;
-                DownloadProgressBar.IsIndeterminate = false;
-                
-                await Task.Delay(500);
-                await Task.Run(() => LoadPackages());
+                try
+                {
+                    _downloadProgressViewModel.IsDownloadProgressVisible = false;
+                    _downloadProgressViewModel.DownloadProgressValue = 0;
+
+                    DownloadProgressBar.Visibility = System.Windows.Visibility.Collapsed;
+                    DownloadProgressBar.Value = 0;
+                    DownloadProgressBar.IsIndeterminate = false;
+
+                    if (installSucceeded)
+                    {
+                        try
+                        {
+                            _gameStatusViewModel.Status = "Reloading packages...";
+                            UpdateStatus("Reloading packages...");
+                            await Task.Delay(500);
+                            await Task.Run(() => LoadPackages());
+                            packagesLoadedAtEnd = true;
+
+                            _gameStatusViewModel.Status = "Reapplying TdGame-linked settings...";
+                            UpdateStatus("Reapplying TdGame-linked settings...");
+                            reapplyResult = await ReapplyTdGameTouchpointSnapshotAsync(touchpointSnapshot);
+
+                            await Task.Delay(250);
+                            await Task.Run(() => LoadPackages());
+                            packagesLoadedAtEnd = true;
+
+                            _gameStatusViewModel.Status = "Successfully installed.";
+                            UpdateStatus("Successfully installed.");
+                            await DialogHelper.ShowMessageAsync("Success", BuildTdGameInstallSuccessMessage(selectedVersionName, reapplyResult), DialogHelper.MessageType.Success);
+                        }
+                        catch (Exception ex)
+                        {
+                            _gameStatusViewModel.Status = "TdGame installed, but settings reapply hit an error.";
+                            UpdateStatus("TdGame installed with warnings.");
+                            await DialogHelper.ShowMessageAsync(
+                                "Warning",
+                                $"The TdGame version was installed successfully, but some TdGame-linked settings failed to be reapplied:\n\n{ex.Message}.",
+                                DialogHelper.MessageType.Warning);
+                        }
+                    }
+
+                    if (!packagesLoadedAtEnd)
+                    {
+                        await Task.Delay(500);
+                        await Task.Run(() => LoadPackages());
+                    }
+
+                    if (installSucceeded && _package != null && _tdGamePackage != null)
+                    {
+                        _gameStatusViewModel.Status = "Ready.";
+                        UpdateStatus("Ready.");
+                    }
+                }
+                finally
+                {
+                    this.IsEnabled = true;
+                }
             }
+        }
+
+        private TdGameTouchpointSnapshot CaptureTdGameTouchpointSnapshot()
+        {
+            TdGameTouchpointSnapshot snapshot = new TdGameTouchpointSnapshot
+            {
+                UniformSensitivityTargetValue = GetUniformSensitivityTargetValueFromUiSelection(),
+                GamepadButtonType = GetGamepadButtonTypeFromUiSelection(),
+                HasLoadLastCheckpointKeybind = !string.IsNullOrWhiteSpace(LoadLastCheckpointKeyTextBox.Text),
+                HasRestartTimeTrialKeybind = !string.IsNullOrWhiteSpace(RestartTimeTrialKeyTextBox.Text)
+            };
+
+            snapshot.FovSnapshot.SeqActCameraFov = TryReadTdGameFloatFromCurrentPackageOffset(_offsets.SeqActCameraFovOffset);
+            snapshot.FovSnapshot.TdMoveVertigoZoomFov = TryReadTdGameFloatFromCurrentPackageOffset(_offsets.TdMoveVertigoZoomFovOffset);
+            snapshot.FovSnapshot.UnzoomFovRate = TryReadTdGameFloatFromCurrentPackageOffset(_offsets.UnzoomFovRateOffset);
+            snapshot.FovSnapshot.NearClippingPlane = TryReadTdGameFloatFromCurrentPackageOffset(_offsets.NearClippingPlaneOffset);
+            snapshot.FovSnapshot.FovScaleMultiplier = TryReadTdGameFloatFromCurrentPackageOffset(_offsets.FovScaleMultiplierOffset);
+            snapshot.FovSnapshot.TdMoveVertigoZoomFovFlags = TryReadUInt64FromFileOffset(_config.TdGamePackagePath, _offsets.TdMoveVertigoZoomFovFlagsOffset);
+
+            if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
+            {
+                try
+                {
+                    snapshot.WasHighResFixActive = _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
+                }
+                catch
+                {
+                    snapshot.WasHighResFixActive = false;
+                }
+            }
+
+            return snapshot;
+        }
+
+        private float? TryReadTdGameFloatFromCurrentPackageOffset(long offset)
+        {
+            if (offset < 0 || _tdGamePackage == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                return _offsetFinderService.ReadFloatFromPackage(_tdGamePackage, offset);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ulong? TryReadUInt64FromFileOffset(string? filePath, long offset)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath) || offset < 0)
+            {
+                return null;
+            }
+
+            try
+            {
+                using FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (offset + sizeof(ulong) > stream.Length)
+                {
+                    return null;
+                }
+
+                byte[] buffer = new byte[sizeof(ulong)];
+                stream.Position = offset;
+                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                if (bytesRead != buffer.Length)
+                {
+                    return null;
+                }
+
+                return BitConverter.ToUInt64(buffer, 0);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private float? GetUniformSensitivityTargetValueFromUiSelection()
+        {
+            if (UniformSensitivityComboBox.SelectedItem is ComboBoxItem selectedItem && selectedItem.Content is string content)
+            {
+                if (content.Equals("Enabled", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 66536f;
+                }
+
+                if (content.Equals("Disabled", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 16384f;
+                }
+            }
+
+            return UniformSensitivityComboBox.SelectedIndex switch
+            {
+                0 => 66536f,
+                1 => 16384f,
+                _ => null
+            };
+        }
+
+        private string? GetGamepadButtonTypeFromUiSelection()
+        {
+            return GamepadButtonsComboBox.SelectedIndex switch
+            {
+                0 => "xbox",
+                1 => "ps3",
+                _ => null
+            };
+        }
+
+        private async Task<TdGameTouchpointReapplyResult> ReapplyTdGameTouchpointSnapshotAsync(TdGameTouchpointSnapshot snapshot)
+        {
+            TdGameTouchpointReapplyResult result = new TdGameTouchpointReapplyResult();
+
+            if (string.IsNullOrEmpty(_config.TdGamePackagePath) || !File.Exists(_config.TdGamePackagePath))
+            {
+                result.FailedSettings.Add("TdGame.u was not found after installation");
+                return result;
+            }
+
+            if (snapshot.FovSnapshot.HasValues)
+            {
+                try
+                {
+                    bool wroteFovValues = ReapplyTdGameFovSnapshot(_config.TdGamePackagePath, snapshot.FovSnapshot);
+                    if (wroteFovValues)
+                    {
+                        result.ReappliedSettings.Add("FOV-related TdGame offsets");
+                    }
+                    else
+                    {
+                        result.FailedSettings.Add("FOV-related TdGame offsets (offsets not found in this TdGame variant)");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"FOV-related TdGame offsets ({ex.Message})");
+                }
+            }
+
+            if (snapshot.UniformSensitivityTargetValue.HasValue)
+            {
+                try
+                {
+                    float targetValue = snapshot.UniformSensitivityTargetValue.Value;
+                    await Task.Run(() => ApplyUniformSensitivity(_config.TdGamePackagePath, targetValue));
+                    result.ReappliedSettings.Add("Uniform sensitivity");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"Uniform sensitivity ({ex.Message})");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(snapshot.GamepadButtonType))
+            {
+                try
+                {
+                    string buttonType = snapshot.GamepadButtonType;
+                    await Task.Run(() => ApplyControllerImagePathSwap(_config.TdGamePackagePath, buttonType));
+                    result.ReappliedSettings.Add("Gamepad prompt mode");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"Gamepad prompt mode ({ex.Message})");
+                }
+            }
+
+            if (snapshot.HasLoadLastCheckpointKeybind)
+            {
+                try
+                {
+                    await AddExecFlagToFunction("TdSPGame", "RestartFromLastCheckpoint");
+                    result.ReappliedSettings.Add("Load Last Checkpoint exec patch");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"Load Last Checkpoint exec patch ({ex.Message})");
+                }
+            }
+
+            if (snapshot.HasRestartTimeTrialKeybind)
+            {
+                try
+                {
+                    await AddExecFlagToFunction("TdTimeTrialHUD", "TriggerRestartRaceblink");
+                    result.ReappliedSettings.Add("Restart Time Trial exec patch");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"Restart Time Trial exec patch ({ex.Message})");
+                }
+            }
+
+            if (snapshot.WasHighResFixActive)
+            {
+                try
+                {
+                    await ReapplyHighResUIFixIfNeeded(snapshot.WasHighResFixActive, showDialogs: false);
+                    result.ReappliedSettings.Add("Crosshair and cursor scaling (high-res UI fix)");
+                }
+                catch (Exception ex)
+                {
+                    result.FailedSettings.Add($"Crosshair and cursor scaling ({ex.Message})");
+                }
+            }
+
+            List<string> distinctReapplied = result.ReappliedSettings.Distinct(StringComparer.Ordinal).ToList();
+            result.ReappliedSettings.Clear();
+            result.ReappliedSettings.AddRange(distinctReapplied);
+            return result;
+        }
+
+        private bool ReapplyTdGameFovSnapshot(string tdGamePackagePath, TdGameFovTouchpointSnapshot snapshot)
+        {
+            if (!snapshot.HasValues)
+            {
+                return false;
+            }
+
+            FileAttributes attributes = File.GetAttributes(tdGamePackagePath);
+            bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
+
+            if (wasReadOnly)
+            {
+                File.SetAttributes(tdGamePackagePath, attributes & ~FileAttributes.ReadOnly);
+            }
+
+            try
+            {
+                using FileStream stream = new FileStream(tdGamePackagePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
+                bool wroteAnyValue = false;
+
+                wroteAnyValue |= WriteFloatAtOffset(stream, _offsets.SeqActCameraFovOffset, snapshot.SeqActCameraFov);
+                wroteAnyValue |= WriteFloatAtOffset(stream, _offsets.TdMoveVertigoZoomFovOffset, snapshot.TdMoveVertigoZoomFov);
+                wroteAnyValue |= WriteFloatAtOffset(stream, _offsets.UnzoomFovRateOffset, snapshot.UnzoomFovRate);
+                wroteAnyValue |= WriteFloatAtOffset(stream, _offsets.NearClippingPlaneOffset, snapshot.NearClippingPlane);
+                wroteAnyValue |= WriteFloatAtOffset(stream, _offsets.FovScaleMultiplierOffset, snapshot.FovScaleMultiplier);
+                wroteAnyValue |= WriteUInt64AtOffset(stream, _offsets.TdMoveVertigoZoomFovFlagsOffset, snapshot.TdMoveVertigoZoomFovFlags);
+
+                return wroteAnyValue;
+            }
+            finally
+            {
+                if (wasReadOnly)
+                {
+                    File.SetAttributes(tdGamePackagePath, attributes);
+                }
+            }
+        }
+
+        private static bool WriteFloatAtOffset(FileStream stream, long offset, float? value)
+        {
+            if (!value.HasValue || offset < 0 || offset + sizeof(float) > stream.Length)
+            {
+                return false;
+            }
+
+            byte[] bytes = BitConverter.GetBytes(value.Value);
+            stream.Position = offset;
+            stream.Write(bytes, 0, bytes.Length);
+            return true;
+        }
+
+        private static bool WriteUInt64AtOffset(FileStream stream, long offset, ulong? value)
+        {
+            if (!value.HasValue || offset < 0 || offset + sizeof(ulong) > stream.Length)
+            {
+                return false;
+            }
+
+            byte[] bytes = BitConverter.GetBytes(value.Value);
+            stream.Position = offset;
+            stream.Write(bytes, 0, bytes.Length);
+            return true;
+        }
+
+        private static string BuildTdGameInstallSuccessMessage(string selectedVersionName, TdGameTouchpointReapplyResult reapplyResult)
+        {
+            string message = $"Successfully downloaded and installed '{selectedVersionName}' TdGame version.";
+
+            if (reapplyResult.FailedSettings.Count > 0)
+            {
+                message += "\n\nSome TdGame-linked settings could not be restored automatically. " +
+                           "Please review your settings in the UI and reapply if needed.";
+            }
+
+            return message;
         }
 
 
@@ -1481,19 +2167,19 @@ namespace MirrorsEdgeTweaks
             _gameStatusViewModel.IsGameTweaksEnabled = false;
             _downloadProgressViewModel.IsDownloadProgressVisible = true;
             _downloadProgressViewModel.DownloadProgressValue = 0;
-            
+
             GameTweaksGrid.IsEnabled = false;
             DownloadProgressBar.Visibility = System.Windows.Visibility.Visible;
             DownloadProgressBar.Value = 0;
 
             try
             {
-                await Task.Run(async () => 
+                await Task.Run(async () =>
                 {
                     Dispatcher.Invoke(() => UpdateStatus("Installing console..."));
                     ModifyIniFile(_config.TdEngineIniPath, "Engine.Engine", "ConsoleClassName", "MirrorsEdgeConsole.MirrorsEdgeConsole");
                     ModifyIniFile(_config.TdInputIniPath, "Engine.Console", "TypeKey", "Tab");
-                    
+
                     const string consoleUrl = "https://github.com/softsoundd/MirrorsEdgeTweaks/raw/refs/heads/main/Downloads/MirrorsEdgeConsole.zip";
                     string tempZipPath = Path.Combine(Path.GetTempPath(), "MirrorsEdgeConsole.zip");
 
@@ -1508,7 +2194,8 @@ namespace MirrorsEdgeTweaks
                         {
                             if (!totalBytes.HasValue)
                             {
-                                Dispatcher.Invoke(() => {
+                                Dispatcher.Invoke(() =>
+                                {
                                     _downloadProgressViewModel.IsDownloadProgressIndeterminate = true;
                                     DownloadProgressBar.IsIndeterminate = true;
                                 });
@@ -1516,7 +2203,8 @@ namespace MirrorsEdgeTweaks
                             }
                             else
                             {
-                                Dispatcher.Invoke(() => {
+                                Dispatcher.Invoke(() =>
+                                {
                                     _downloadProgressViewModel.IsDownloadProgressIndeterminate = false;
                                     DownloadProgressBar.IsIndeterminate = false;
                                 });
@@ -1528,8 +2216,9 @@ namespace MirrorsEdgeTweaks
                                     await fileStream.WriteAsync(buffer, 0, bytesRead);
                                     totalBytesRead += bytesRead;
                                     var progress = (int)((double)totalBytesRead / totalBytes.Value * 100);
-                                    
-                                    Dispatcher.Invoke(() => {
+
+                                    Dispatcher.Invoke(() =>
+                                    {
                                         _downloadProgressViewModel.DownloadProgressValue = progress;
                                         DownloadProgressBar.Value = progress;
                                         UpdateStatus($"Downloading console... {progress}%");
@@ -1538,18 +2227,19 @@ namespace MirrorsEdgeTweaks
                             }
                         }
                     }
-                    
-                    Dispatcher.Invoke(() => {
+
+                    Dispatcher.Invoke(() =>
+                    {
                         UpdateStatus("Extracting console files...");
                         _downloadProgressViewModel.IsDownloadProgressIndeterminate = true;
                         DownloadProgressBar.IsIndeterminate = true;
                     });
-                    
+
                     ZipFile.ExtractToDirectory(tempZipPath, _config.GameDirectoryPath, true);
                     File.Delete(tempZipPath);
 
                     Dispatcher.Invoke(() => UpdateStatus("Patching Engine.u..."));
-                    
+
                     _packageService.DisposePackage(_package);
                     _package = null;
                     using (var stream = new FileStream(_config.EnginePackagePath, FileMode.Open, FileAccess.Write, FileShare.None))
@@ -1558,6 +2248,14 @@ namespace MirrorsEdgeTweaks
                         byte[] newValue = BitConverter.GetBytes(0.4f);
                         stream.Write(newValue, 0, newValue.Length);
                     }
+
+                    string exePath = Path.Combine(_config.GameDirectoryPath, "Binaries", "MirrorsEdge.exe");
+                    if (SetCommandPatchHelper.IsDlcVersion(exePath))
+                    {
+                        Dispatcher.Invoke(() => UpdateStatus("Applying DLC set/setnopec fix..."));
+                    }
+
+                    SetCommandPatchHelper.EnsurePatchedIfApplicable(exePath);
                 });
 
                 UpdateStatus("Ready.");
@@ -1579,11 +2277,11 @@ namespace MirrorsEdgeTweaks
             finally
             {
                 _downloadProgressViewModel.IsDownloadProgressVisible = false;
-                
+
                 DownloadProgressBar.Visibility = System.Windows.Visibility.Collapsed;
                 DownloadProgressBar.Value = 0;
                 DownloadProgressBar.IsIndeterminate = false;
-                
+
                 await Task.Delay(500);
                 await Task.Run(() => LoadPackages());
             }
@@ -1614,7 +2312,7 @@ namespace MirrorsEdgeTweaks
 
             try
             {
-                await Task.Run(() => 
+                await Task.Run(() =>
                 {
                     Dispatcher.Invoke(() => UpdateStatus("Reverting config files..."));
                     ModifyIniFile(_config.TdEngineIniPath, "Engine.Engine", "ConsoleClassName", "TdGame.TdConsole");
@@ -1669,7 +2367,7 @@ namespace MirrorsEdgeTweaks
             _downloadProgressViewModel.DownloadProgressValue = 0;
             _downloadProgressViewModel.IsDownloadProgressIndeterminate = true;
             UpdateStatus("Downloading Tweaks Scripts...");
-            
+
             GameTweaksGrid.IsEnabled = false;
             DownloadProgressBar.Visibility = System.Windows.Visibility.Visible;
             DownloadProgressBar.Value = 0;
@@ -1677,7 +2375,7 @@ namespace MirrorsEdgeTweaks
 
             try
             {
-                await Task.Run(async () => 
+                await Task.Run(async () =>
                 {
                     using (var client = new HttpClient())
                     {
@@ -1691,11 +2389,12 @@ namespace MirrorsEdgeTweaks
                             {
                                 if (totalBytes.HasValue)
                                 {
-                                    Dispatcher.Invoke(() => {
+                                    Dispatcher.Invoke(() =>
+                                    {
                                         _downloadProgressViewModel.IsDownloadProgressIndeterminate = false;
                                         DownloadProgressBar.IsIndeterminate = false;
                                     });
-                                    
+
                                     var totalBytesRead = 0L;
                                     var buffer = new byte[8192];
                                     int bytesRead;
@@ -1704,8 +2403,9 @@ namespace MirrorsEdgeTweaks
                                         await fileStream.WriteAsync(buffer, 0, bytesRead);
                                         totalBytesRead += bytesRead;
                                         var progress = (int)((double)totalBytesRead / totalBytes.Value * 100);
-                                        
-                                        Dispatcher.Invoke(() => {
+
+                                        Dispatcher.Invoke(() =>
+                                        {
                                             _downloadProgressViewModel.DownloadProgressValue = progress;
                                             DownloadProgressBar.Value = progress;
                                             UpdateStatus($"Downloading Tweaks Scripts... {progress}%");
@@ -1720,12 +2420,13 @@ namespace MirrorsEdgeTweaks
                         }
                     }
 
-                    Dispatcher.Invoke(() => {
+                    Dispatcher.Invoke(() =>
+                    {
                         UpdateStatus("Extracting files...");
                         _downloadProgressViewModel.DownloadProgressValue = 100;
                         DownloadProgressBar.Value = 100;
                     });
-                    
+
                     // Backup existing TweaksScriptsSettings if present
                     string binariesPath = Path.Combine(_config.GameDirectoryPath, "Binaries");
                     string settingsPath = Path.Combine(binariesPath, "TweaksScriptsSettings");
@@ -1789,11 +2490,21 @@ namespace MirrorsEdgeTweaks
 
                         File.WriteAllLines(settingsPath, updatedLines);
                     }
+
+                    string exePath = Path.Combine(_config.GameDirectoryPath, "Binaries", "MirrorsEdge.exe");
+                    if (SetCommandPatchHelper.IsDlcVersion(exePath))
+                    {
+                        Dispatcher.Invoke(() => UpdateStatus("Applying DLC set/setnopec fix..."));
+                    }
+
+                    SetCommandPatchHelper.EnsurePatchedIfApplicable(exePath);
                 });
 
                 UpdateStatus("Ready.");
                 UpdateTweaksScriptsStatus();
-                await DialogHelper.ShowMessageAsync("Success", "Tweaks Scripts successfully downloaded and installed.", DialogHelper.MessageType.Success);
+                await DialogHelper.ShowMessageAsync("Success",
+                    "Tweaks Scripts successfully downloaded and installed.",
+                    DialogHelper.MessageType.Success);
             }
             catch (Exception ex)
             {
@@ -1805,12 +2516,12 @@ namespace MirrorsEdgeTweaks
                 _gameStatusViewModel.IsGameTweaksEnabled = true;
                 _downloadProgressViewModel.IsDownloadProgressVisible = false;
                 _downloadProgressViewModel.DownloadProgressValue = 0;
-                
+
                 GameTweaksGrid.IsEnabled = true;
                 DownloadProgressBar.Visibility = System.Windows.Visibility.Collapsed;
                 DownloadProgressBar.Value = 0;
                 DownloadProgressBar.IsIndeterminate = false;
-                
+
                 UpdateTweaksScriptsStatus();
             }
         }
@@ -1832,7 +2543,7 @@ namespace MirrorsEdgeTweaks
 
             try
             {
-                int filesDeleted = await Task.Run(() => 
+                int filesDeleted = await Task.Run(() =>
                 {
                     string cookedPcPath = Path.Combine(_config.GameDirectoryPath, "TdGame", "CookedPC");
                     string binariesPath = Path.Combine(_config.GameDirectoryPath, "Binaries");
@@ -1868,7 +2579,7 @@ namespace MirrorsEdgeTweaks
                             deletedCount++;
                         }
                     }
-                    
+
                     return deletedCount;
                 });
 
@@ -1896,7 +2607,13 @@ namespace MirrorsEdgeTweaks
         }
         private void SetUnlockedConfigsState(string status, System.Windows.Media.Brush foreground, bool isPatchEnabled, bool isUnpatchEnabled)
         {
-            Dispatcher.Invoke(() => {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
+            Dispatcher.Invoke(() =>
+            {
                 _unlockedConfigsViewModel.UnlockedConfigsStatus = status;
                 _unlockedConfigsViewModel.UnlockedConfigsStatusForeground = foreground;
                 _unlockedConfigsViewModel.IsPatchConfigsEnabled = isPatchEnabled;
@@ -1944,7 +2661,8 @@ namespace MirrorsEdgeTweaks
             catch (Exception ex)
             {
                 SetUnlockedConfigsState("Error reading EXE", System.Windows.Media.Brushes.Red, false, false);
-                Dispatcher.Invoke(() => {
+                Dispatcher.Invoke(() =>
+                {
                     _gameStatusViewModel.Status = $"Error checking config patch status: {ex.Message}";
                 });
                 return false;
@@ -2044,7 +2762,7 @@ namespace MirrorsEdgeTweaks
             finally
             {
                 HideProgress();
-                
+
                 this.IsEnabled = true;
             }
         }
@@ -2394,7 +3112,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string? engineIniPath = _config.TdEngineIniPath;
-                
+
                 if (string.IsNullOrEmpty(engineIniPath) || !File.Exists(engineIniPath))
                 {
                     return null;
@@ -2407,7 +3125,7 @@ namespace MirrorsEdgeTweaks
                 foreach (var line in lines)
                 {
                     var trimmedLine = line.Trim();
-                    
+
                     if (trimmedLine.StartsWith("ResX=", StringComparison.OrdinalIgnoreCase))
                     {
                         if (int.TryParse(trimmedLine.Substring(5), out int x))
@@ -2439,11 +3157,11 @@ namespace MirrorsEdgeTweaks
         private void InitializeResolutionComboBox()
         {
             _isInitializingResolutionComboBox = true;
-            
+
             var resolutions = ResolutionHelper.GetAvailableResolutions();
-            
+
             ResolutionComboBox.Items.Clear();
-            
+
             foreach (var resolution in resolutions)
             {
                 var item = new System.Windows.Controls.ComboBoxItem
@@ -2453,7 +3171,7 @@ namespace MirrorsEdgeTweaks
                 };
                 ResolutionComboBox.Items.Add(item);
             }
-            
+
             var currentResolution = GetCurrentResolutionFromConfig();
             bool matched = false;
 
@@ -2512,30 +3230,30 @@ namespace MirrorsEdgeTweaks
             {
                 _isApplyingResolution = true;
                 this.IsEnabled = false;
-                
+
                 try
                 {
                     bool success = await UpdateResolutionInConfigAsync(selectedResolution.Width, selectedResolution.Height);
-                    
+
                     if (!success)
                     {
                         return;
                     }
-                    
+
                     bool userWantsUIScaling = false;
-                    
+
                     if (_uiScalingService.ShouldOfferUIScaling(selectedResolution.Width))
                     {
                         this.IsEnabled = true;
-                        
+
                         userWantsUIScaling = await _uiScalingService.AskUserForUIScalingConfirmationAsync();
-                        
+
                         this.IsEnabled = false;
-                        
+
                         if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
                         {
                             ShowProgress("Applying UI scaling...", true);
-                            
+
                             await System.Threading.Tasks.Task.Run(async () =>
                             {
                                 if (userWantsUIScaling)
@@ -2554,14 +3272,14 @@ namespace MirrorsEdgeTweaks
                         if (!string.IsNullOrEmpty(_config.GameDirectoryPath))
                         {
                             ShowProgress("Resetting UI scaling...", true);
-                            
+
                             await System.Threading.Tasks.Task.Run(async () =>
                             {
                                 await _uiScalingService.RollbackUIScalingToDefaultsAsync(selectedResolution.Width, selectedResolution.Height, _config.GameDirectoryPath, HideProgress);
                             });
                         }
                     }
-                    
+
                     UpdateHighResFixStatus(selectedResolution.Width, userWantsUIScaling);
                 }
                 finally
@@ -2681,6 +3399,11 @@ namespace MirrorsEdgeTweaks
 
         private void UpdateHighResFixStatus(int width, bool isActive)
         {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
             if (width <= 1920)
             {
                 HighResFixStatus.Text = "High-Res Fix N/A";
@@ -2705,7 +3428,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string? engineIniPath = _config.TdEngineIniPath;
-                
+
                 if (string.IsNullOrEmpty(engineIniPath) || !File.Exists(engineIniPath))
                 {
                     await DialogHelper.ShowMessageAsync("Error", "TdEngine.ini file not found. Please ensure Mirror's Edge has been run at least once to create the config files.", DialogHelper.MessageType.Error);
@@ -2714,7 +3437,7 @@ namespace MirrorsEdgeTweaks
 
                 var fileInfo = new FileInfo(engineIniPath);
                 bool wasReadOnly = false;
-                
+
                 try
                 {
                     wasReadOnly = fileInfo.IsReadOnly;
@@ -2748,7 +3471,7 @@ namespace MirrorsEdgeTweaks
                     {
                     }
                 }
-                
+
                 return true;
             }
             catch (Exception ex)
@@ -2763,7 +3486,7 @@ namespace MirrorsEdgeTweaks
 
         private void ShowFOVInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("FOV & Aspect Ratio Information", 
+            DialogHelper.ShowMessage("FOV & Aspect Ratio Information",
                 "• Default horizontal FOV = 90°.\n\n" +
                 "FOV will apply HOR+ scaling if an aspect ratio wider than 16:9 has been applied, or VERT+ scaling if an aspect ratio less wide than 16:9 has been applied. " +
                 "The method in which the FOV is applied ensures that the value remains after each level/game restart, scales according to cutscenes/camera types, " +
@@ -2780,13 +3503,13 @@ namespace MirrorsEdgeTweaks
 
         private void ShowFPSLimitInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("FPS Limit Information", 
+            DialogHelper.ShowMessage("FPS Limit Information",
                 "Default = FPS limit of 62.\n\n60-62 FPS limit is a requirement for speedruns to be verified, any other setting is banned. " +
                 "Speedrunning strategies become increasingly more difficult as FPS increases, therefore it is not advised to deviate from the 60-62 FPS limit.\n\n" +
                 "As framerate increases, so does player friction which can alter the speed of certain movement mechanics and make forced slides more difficult to control " +
                 "as framerates exceed 150 FPS (i.e. Chapter 1C RP&A building slide). Enemy accuracy is also increased at higher framerates. " +
                 "Additionally, as load times are tied to framerate, loading times decrease as framerate increases. These effects are otherwise generally not noticeable to casual players " +
-                "and the game can be comfortably played with a higher FPS limit in place.\n\nIf you want to run the game with no FPS limiter at all, click the \'Remove Limit\' button.", 
+                "and the game can be comfortably played with a higher FPS limit in place.\n\nIf you want to run the game with no FPS limiter at all, click the \'Remove Limit\' button.",
                 DialogHelper.MessageType.Information);
         }
 
@@ -2799,7 +3522,7 @@ namespace MirrorsEdgeTweaks
             }
 
             string input = FPSLimitTextBox.Text.Trim();
-            
+
             if (string.IsNullOrEmpty(input))
             {
                 DialogHelper.ShowMessage("Error", "FPS value not entered.", DialogHelper.MessageType.Error);
@@ -2858,6 +3581,11 @@ namespace MirrorsEdgeTweaks
 
         private void UpdateFPSLimitStatus()
         {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
             if (string.IsNullOrEmpty(_config.TdEngineIniPath))
             {
                 FPSLimitStatus.Text = "N/A";
@@ -2868,7 +3596,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 var (isLimited, fpsValue) = _graphicsSettingsService.ReadFPSLimitStatus(_config.TdEngineIniPath);
-                
+
                 if (isLimited && fpsValue.HasValue)
                 {
                     FPSLimitStatus.Text = "Limiter On";
@@ -3015,7 +3743,7 @@ namespace MirrorsEdgeTweaks
                 string? vsmShadows = _graphicsSettingsService.ReadIniValue(_config.TdEngineIniPath, "bEnableVSMShadows");
                 if (hqShadows != null && vsmShadows != null)
                 {
-                    bool isHQEnabled = hqShadows.Equals("True", StringComparison.OrdinalIgnoreCase) && 
+                    bool isHQEnabled = hqShadows.Equals("True", StringComparison.OrdinalIgnoreCase) &&
                                       vsmShadows.Equals("False", StringComparison.OrdinalIgnoreCase);
                     HQDynamicShadowsComboBox.SelectedIndex = isHQEnabled ? 0 : 1;
                 }
@@ -3441,7 +4169,7 @@ namespace MirrorsEdgeTweaks
 
             bool proceed = await DialogHelper.ShowConfirmationAsync(
                 "Texture detail preset",
-                "Applying a texture detail preset will revert any changes you may have made in the visual tweaks section below.\n\nDo you wish to proceed?");
+                "Applying a texture detail preset will revert any changes you may have made in the 'Individual Settings' section below.\n\nDo you wish to proceed?");
 
             if (!proceed)
             {
@@ -3498,7 +4226,7 @@ namespace MirrorsEdgeTweaks
 
             bool proceed = await DialogHelper.ShowConfirmationAsync(
                 "Graphics quality preset",
-                "Applying a graphics quality preset will revert any changes you may have made in the visual tweaks section below.\n\nDo you wish to proceed?");
+                "Applying a graphics quality preset will revert any changes you may have made in the 'Individual Settings' section below.\n\nDo you wish to proceed?");
 
             if (!proceed)
             {
@@ -4067,7 +4795,7 @@ namespace MirrorsEdgeTweaks
             }
 
             string input = MinLODTextBox.Text.Trim();
-            
+
             if (string.IsNullOrEmpty(input))
             {
                 DialogHelper.ShowMessage("Error", "LOD value not entered.", DialogHelper.MessageType.Error);
@@ -4113,7 +4841,7 @@ namespace MirrorsEdgeTweaks
             }
 
             string input = MaxLODTextBox.Text.Trim();
-            
+
             if (string.IsNullOrEmpty(input))
             {
                 DialogHelper.ShowMessage("Error", "LOD value not entered.", DialogHelper.MessageType.Error);
@@ -4159,7 +4887,7 @@ namespace MirrorsEdgeTweaks
             }
 
             string input = LODBiasTextBox.Text.Trim();
-            
+
             if (string.IsNullOrEmpty(input))
             {
                 DialogHelper.ShowMessage("Error", "LOD value not entered.", DialogHelper.MessageType.Error);
@@ -4202,18 +4930,18 @@ namespace MirrorsEdgeTweaks
 
         private void ShowTdGameVersionInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("TdGame Version Information", 
-                "Allows the selection of various TdGame versions. Mirror's Edge Tweaks will automatically install the required file for your game version.\n\n" +
+            DialogHelper.ShowMessage("TdGame Version Information",
+                "Allows the selection of various TdGame versions.\n\n" +
                 "• Original — Unmodified TdGame and persistent map files.\n\n" +
-                "• TdGame Fix (by Keku) — Modified TdGame and persistent map files that allows loading custom skins, animations, sounds and other miscellaneous mods.\n\n" +
+                "• TdGame Fix (by Keku) — Modified TdGame and persistent map files that allows loading custom skins, animations, sounds and other miscellaneous mods (Mirror's Edge Tweaks does not require this to be installed with the exception of the Cinematic Faith Model mod).\n\n" +
                 "• Time Trials Timer Fix (by Nulaft) — Fixes the precision errors of the time trial timer and uses a realtime timer (timer is prepended with an \"R\" to indicate this). Useful for speedrunners.\n\n" +
-                "• TdGame Fix + Time Trials Timer Fix — Both versions combined.", 
+                "• TdGame Fix + Time Trials Timer Fix — Both versions combined.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowConsoleInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Developer Console Information", 
+            DialogHelper.ShowMessage("Developer Console Information",
                 "Install the native Unreal Engine 3 developer console to access debug commands and features.\n\n" +
                 "The function responsible for handling user input to open the console was intentionally stripped by DICE. Mirror's Edge Tweaks can install a custom UnrealScript package " +
                 "that extends the existing Console class, overriding the empty input function with the required code to restore full console functionality.\n\n" +
@@ -4222,25 +4950,25 @@ namespace MirrorsEdgeTweaks
                 "• German: ö\n\n" +
                 "• French: ù (% key)\n\n" +
                 "• Spanish: ñ\n\n" +
-                "• Italian: \\ (backslash)", 
+                "• Italian: \\ (backslash)",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowTweaksScriptsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Tweaks Scripts Information", 
+            DialogHelper.ShowMessage("Tweaks Scripts Information",
                 "A custom UnrealScript package that adds an assortment of additional gameplay features, including Softimer (native in-game timer for speedrunners), cheats and trainer functionality, save file editing, and more.\n\n" +
                 "It is highly recommended to install the developer console to access the full range of features of Tweaks Scripts.\n\n" +
-                "• Softimer — Activate with the console command \"exec speedrun\" (or deactivate with \"exec speedrunoff\"), or toggle it via the 'Tweaks Scripts Menu UI Mod'.\n\n" +
-                "• Cheats & Trainer — Activate with the console command \"exec cheats\" (or deactivate with \"exec cheatsoff\"), or toggle it via the 'Tweaks Scripts Menu UI Mod'. While activated, enter \"listcheats\" to view all cheats.\n\n" +
-                "• Trainer HUD — Activate with the console command \"exec trainerhud\" (or deactivate with \"exec trainerhudoff\"), or toggle it via the 'Tweaks Scripts Menu UI Mod'.\n\n" +
+                "• Softimer — Activate with the console command \"exec speedrun\" (or deactivate with \"exec speedrunoff\"), or toggle it via the 'Tweaks Scripts UI' mod.\n\n" +
+                "• Cheats & Trainer — Activate with the console command \"exec cheats\" (or deactivate with \"exec cheatsoff\"), or toggle it via the 'Tweaks Scripts UI' mod. While activated, enter \"listcheats\" to view all cheats.\n\n" +
+                "• Trainer HUD — Activate with the console command \"exec trainerhud\" (or deactivate with \"exec trainerhudoff\"), or toggle it via the 'Tweaks Scripts UI' mod.\n\n" +
                 "• Save File Editor — Edit save progress (also requires the 'Tweaks Scripts UI' mod to be installed).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowTweaksScriptsUIInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Tweaks Scripts UI Information", 
+            DialogHelper.ShowMessage("Tweaks Scripts UI Information",
                 "Provides an in-game UI for Tweaks Scripts features, accessible from the main menu.\n\n" +
                 "• Regular: Standard version.\n\n" +
                 "• MEMM-Compatible: Version compatible with the Mirror's Edge Map Manager.",
@@ -4249,16 +4977,26 @@ namespace MirrorsEdgeTweaks
 
         private async void InstallTweaksScriptsUI_Click(object sender, RoutedEventArgs e)
         {
+            if (!IsTweaksScriptsInstalled())
+            {
+                DialogHelper.ShowMessage(
+                    "Dependency Missing",
+                    "Install 'Tweaks Scripts' first (MirrorsEdgeTweaksScripts.u), then install Tweaks Scripts UI.",
+                    DialogHelper.MessageType.Warning);
+                UpdateTweaksScriptsDependencyUI(isTweaksScriptsInstalled: false);
+                return;
+            }
+
             var versionChoice = await ShowTweaksScriptsUIVersionDialog();
-            
+
             if (versionChoice == null)
                 return;
-            
+
             bool isMEMM = versionChoice.Value;
-            string downloadUrl = isMEMM 
+            string downloadUrl = isMEMM
                 ? "https://github.com/softsoundd/MirrorsEdgeTweaks/raw/refs/heads/main/Downloads/MirrorsEdgeTweaksScriptsUI_MEMM_compatible.zip"
                 : "https://github.com/softsoundd/MirrorsEdgeTweaks/raw/refs/heads/main/Downloads/MirrorsEdgeTweaksScriptsUI.zip";
-            
+
             await InstallTweaksScriptsUIAsync(downloadUrl, isMEMM);
         }
 
@@ -4340,7 +5078,7 @@ namespace MirrorsEdgeTweaks
                     HideProgress();
 
                     string versionName = isMEMMVersion ? "MEMM-Compatible" : "Regular";
-                    DialogHelper.ShowMessage("Success", 
+                    DialogHelper.ShowMessage("Success",
                         $"Tweaks Scripts UI ({versionName}) installed successfully!",
                         DialogHelper.MessageType.Success);
 
@@ -4354,7 +5092,7 @@ namespace MirrorsEdgeTweaks
             catch (Exception ex)
             {
                 HideProgress();
-                DialogHelper.ShowMessage("Error", 
+                DialogHelper.ShowMessage("Error",
                     $"Failed to install Tweaks Scripts UI: {ex.Message}",
                     DialogHelper.MessageType.Error);
             }
@@ -4386,13 +5124,13 @@ namespace MirrorsEdgeTweaks
 
                 if (deletedCount == 0)
                 {
-                    DialogHelper.ShowMessage("Information", 
+                    DialogHelper.ShowMessage("Information",
                         "No Tweaks Scripts UI files found to uninstall.",
                         DialogHelper.MessageType.Information);
                 }
                 else
                 {
-                    DialogHelper.ShowMessage("Success", 
+                    DialogHelper.ShowMessage("Success",
                         $"Tweaks Scripts UI uninstalled. ({deletedCount} file(s) removed)",
                         DialogHelper.MessageType.Success);
                 }
@@ -4401,7 +5139,7 @@ namespace MirrorsEdgeTweaks
             }
             catch (Exception ex)
             {
-                DialogHelper.ShowMessage("Error", 
+                DialogHelper.ShowMessage("Error",
                     $"Failed to uninstall Tweaks Scripts UI: {ex.Message}",
                     DialogHelper.MessageType.Error);
             }
@@ -4409,6 +5147,11 @@ namespace MirrorsEdgeTweaks
 
         private void UpdateTweaksScriptsUIStatus()
         {
+            if (_isProcessingGameDirectory)
+            {
+                return;
+            }
+
             try
             {
                 string publishedPath = Path.Combine(GetDocumentsTdGamePath(), "Published");
@@ -4449,11 +5192,15 @@ namespace MirrorsEdgeTweaks
                 TweaksScriptsUIStatus.Text = "N/A";
                 TweaksScriptsUIStatus.Foreground = System.Windows.Media.Brushes.Gray;
             }
+            finally
+            {
+                UpdateTweaksScriptsDependencyUI(IsTweaksScriptsInstalled());
+            }
         }
 
         private void ShowUnlockedConfigsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Unlocked Configs Information", 
+            DialogHelper.ShowMessage("Unlocked Configs Information",
                 "Applying this patch bypasses the \"corrupted config\" error message that prevents the game from launching when the game directory's config files have been modified " +
                 "(e.g. when removing the streak effects, adding custom maps, removing startup wait period, etc.).\n\nThis is essentially achieving what the MEMLA tool does, " +
                 "except it patches the executable directly.",
@@ -4462,7 +5209,7 @@ namespace MirrorsEdgeTweaks
 
         private void ShowLaunchArgumentsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Launch Arguments Information", 
+            DialogHelper.ShowMessage("Launch Arguments Information",
                 "Patches the executable to unlock Mirror's Edge's original UE3 command line handling so the game can forward the raw Windows command line arguments directly.\n\n" +
                 "Arguments can be entered here, or they can be added to your game library's launch options/other shortcuts.\n\n" +
                 "Note: EA App/Xbox Game Pass for PC versions of the game are protected builds that cannot be patched on disk. The 'Launch Game w/ Args' button must be used instead which will perform the patch in memory.\n\n\n" +
@@ -4581,195 +5328,195 @@ namespace MirrorsEdgeTweaks
 
         private void ShowHighResFixInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Resolution Information", 
+            DialogHelper.ShowMessage("Resolution Information",
                 "Mirror's Edge accepts only the resolutions currently available in your system's display settings. However, it is possible to use other software " +
                 "(e.g. Custom Resolution Utility, NVIDIA Control Panel, etc.) to add custom display resolutions. Once these are configured, they will appear here.\n\n" +
                 "Selecting a resolution with a horizontal pixel count greater than 1920 will also prompt you with the option to fix the blurry in-game text and other UI fixes. " +
-                "Please be aware that this solution partially works at the moment — while blurriness is fixed, subtitles, lists, timer HUD, and loading screen text will appear smaller as you increase the resolution.", 
+                "Please be aware that this solution partially works at the moment — while blurriness is fixed, subtitles, lists, timer HUD, and loading screen text will appear smaller as you increase the resolution.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowVSyncInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("VSync Information", 
-                "Vertical Sync synchronises the frame rate with your monitor's refresh rate to prevent screen tearing. Enabling it may increase input latency.", 
+            DialogHelper.ShowMessage("VSync Information",
+                "Vertical Sync synchronises the frame rate with your monitor's refresh rate to prevent screen tearing. Enabling it may increase input latency.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowAntiAliasingInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Anti-Aliasing Information", 
-                "Anti-aliasing smooths jagged edges in the game. Higher values provide better quality but reduce performance.", 
+            DialogHelper.ShowMessage("Anti-Aliasing Information",
+                "Anti-aliasing smooths jagged edges in the game. Higher values provide better quality but reduce performance.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowPhysXInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("PhysX Information", 
+            DialogHelper.ShowMessage("PhysX Information",
                 "PhysX provides additional physics effects such as detailed debris and cloth simulations, and spawns in extra physics props.\n\n" +
-                "Note: PhysX in Mirror's Edge is hardware accelerated only on CUDA-ready NVIDIA GPUs.", 
+                "Note: PhysX in Mirror's Edge is hardware accelerated only on CUDA-ready NVIDIA GPUs.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowPhysXFPSInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("PhysX FPS Information", 
+            DialogHelper.ShowMessage("PhysX FPS Information",
                 "Applies a PhysX FPS value to cloth simulations (flags, construction tarps, strip curtain doors, etc.). Accepts a minimum of 50 FPS and a maximum of 300 FPS. No effect if PhysX is disabled.\n\n" +
                 "Cloth simulations in Mirror's Edge are simulated at a rate independent of the game's framerate, otherwise known as time-steps. By default, Mirror's Edge uses a value of 50 FPS " +
                 "for PhysX cloth simulations, which can appear choppy when using reaction time or when running the game above the 62 FPS limit.\n\n" +
                 "Suggestions:\n\n\u2022 If playing at the default 62 FPS limit, change the PhysX FPS value to 62 FPS to match the simulation rate with the game's framerate. " +
-                "This effectively removes the frame pacing appearance of PhysX cloth.\n\n\u2022 If playing at uncapped FPS, set this value to whatever you want (max of 300 FPS).", 
+                "This effectively removes the frame pacing appearance of PhysX cloth.\n\n\u2022 If playing at uncapped FPS, set this value to whatever you want (max of 300 FPS).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowRenderResolutionInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Render Resolution Information", 
+            DialogHelper.ShowMessage("Render Resolution Information",
                 "Renders the game at a lower internal resolution (when set below 100%), then upscales it to match your display output, preserving native DPI without altering your desktop resolution. " +
-                "This option is especially helpful for improving performance on lower-end systems.", 
+                "This option is especially helpful for improving performance on lower-end systems.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowTextureDetailInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Texture Detail Information", 
-                "Texture detail controls the resolution/LODs of textures, as well as the level of anisotropic filtering and bicubic filtering to be applied.\n\nThis setting mirrors the in-game video options.", 
+            DialogHelper.ShowMessage("Texture Detail Information",
+                "Texture detail controls the resolution/LODs of textures, as well as the level of anisotropic filtering and bicubic filtering to be applied.\n\nThis setting mirrors the in-game video options.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowGraphicsQualityInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Graphics Quality Information", 
-                "Graphics quality controls mesh/shadow quality, as well as various other post-process effects such as bloom, depth of field, lens flares, etc.\n\nThis setting mirrors the in-game video options.", 
+            DialogHelper.ShowMessage("Graphics Quality Information",
+                "Graphics quality controls mesh/shadow quality, as well as various other post-process effects such as bloom, depth of field, lens flares, etc.\n\nThis setting mirrors the in-game video options.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowAnisotropicFilteringInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Anisotropic Filtering Information", 
-                "Anisotropic filtering improves texture quality when viewed at oblique angles. Higher values provide better quality.", 
+            DialogHelper.ShowMessage("Anisotropic Filtering Information",
+                "Anisotropic filtering improves texture quality when viewed at oblique angles. Higher values provide better quality.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowStaticDecalsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Static Decals Information", 
-                "Static decals are pre-placed decals (runner glyphs, paint/graffiti, etc.).", 
+            DialogHelper.ShowMessage("Static Decals Information",
+                "Static decals are pre-placed decals (runner glyphs, paint/graffiti, etc.).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowDynamicDecalsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Dynamic Decals Information", 
-                "Dynamic decals are decals spawned during gameplay (typically bullet holes and explosion effects).", 
+            DialogHelper.ShowMessage("Dynamic Decals Information",
+                "Dynamic decals are decals spawned during gameplay (typically bullet holes and explosion effects).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowRadialBlurInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Radial Blur Information", 
-                "Radial blur is the blurring applied to the edges of the screen when running. It is seperate from the streak effect.", 
+            DialogHelper.ShowMessage("Radial Blur Information",
+                "Radial blur is the blurring applied to the edges of the screen when running. It is seperate from the streak effect.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowStreakEffectInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Streak Effect Information", 
+            DialogHelper.ShowMessage("Streak Effect Information",
                 "When approaching top running speed, streak effects will appear on the edges of the screen which can become more noticeable at higher FOV settings. " +
-                "\n\nDisabling requires the 'Unlocked Configs' patch in the 'Game Tweaks' section.", 
+                "\n\nDisabling requires the 'Unlocked Configs' patch in the 'Game Tweaks' section.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowBloomDoFInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Bloom & DoF Information", 
+            DialogHelper.ShowMessage("Bloom & DoF Information",
                 "Bloom creates a glow effect around bright lights. Depth of Field blurs objects that are out of focus." +
-                "\n\nThe shaders involved for rendering Bloom and Depth of Field are dependent on each other and cannot be individually toggled on/off.", 
+                "\n\nThe shaders involved for rendering Bloom and Depth of Field are dependent on each other and cannot be individually toggled on/off.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowLensFlareInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Lens Flare Information", 
-                "Allows enabling/disabling the lens flares emitted from the sun and various light sources. In some maps this will also remove the appearance of the sun altogether.", 
+            DialogHelper.ShowMessage("Lens Flare Information",
+                "Allows enabling/disabling the lens flares emitted from the sun and various light sources. In some maps this will also remove the appearance of the sun altogether.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowDynamicLightsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Dynamic Lights Information", 
-                "Dynamic lights are any light sources that dynamically illuminate the scene and characters. Typical examples include flashlights/cop car lights and ambient character illumination.", 
+            DialogHelper.ShowMessage("Dynamic Lights Information",
+                "Dynamic lights are any light sources that dynamically illuminate the scene and characters. Typical examples include flashlights/cop car lights and ambient character illumination.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowDynamicShadowsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Dynamic Shadows Information", 
-                "Dynamic shadows are the modulated shadows casted onto the environment from characters. This also includes self-shadowing of characters.", 
+            DialogHelper.ShowMessage("Dynamic Shadows Information",
+                "Dynamic shadows are the modulated shadows casted onto the environment from characters. This also includes self-shadowing of characters.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowHQDynamicShadowsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("HQ Dynamic Shadows Information", 
+            DialogHelper.ShowMessage("HQ Dynamic Shadows Information",
                 "High Quality dynamic shadows doubles the resolution of what's available from the \"Highest\" graphics quality preset, " +
                 "forces the maximum shadow resolution to always be shown, increases the filtering quality, and disables VSM shadowing in favour of the superior-quality PCF shadowing." +
-                "\n\nNote: \"High quality\" dynamic shadows will have no effect if dynamic shadows are disabled.", 
+                "\n\nNote: \"High quality\" dynamic shadows will have no effect if dynamic shadows are disabled.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowLightmapsInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Lightmaps Information", 
+            DialogHelper.ShowMessage("Lightmaps Information",
                 "Light maps are the pre-baked lighting used to globally illuminate the environment. These light maps can be disabled (for most objects), " +
-                "showing the original textures without the environment's GI and shadow contributions. Note that disabling can also make some vertex-baked objects appear black.", 
+                "showing the original textures without the environment's GI and shadow contributions. Note that disabling can also make some vertex-baked objects appear black.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowSunHazeInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Sun Haze Information", 
-                "Toggles the appearance of atmospheric haze around the sun. This haze can bleed through buildings in some scenarios.", 
+            DialogHelper.ShowMessage("Sun Haze Information",
+                "Toggles the appearance of atmospheric haze around the sun. This haze can bleed through buildings in some scenarios.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowToneMappingInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Tone Mapping Information", 
+            DialogHelper.ShowMessage("Tone Mapping Information",
                 "Tone mapping adjusts the post-process exposure/colour curves, which are applied on a per-map basis. " +
-                "Disabling tone mapping typically makes the image appear brighter and with less contrast.", 
+                "Disabling tone mapping typically makes the image appear brighter and with less contrast.",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowTextureManagementInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Texture Management Information", 
+            DialogHelper.ShowMessage("Texture Management Information",
                 "The \"Modern\" setting removes the 250MB VRAM allocation limit to textures and forces textures to remain in the texture pool once loaded. " +
                 "This can resolve the random blurry texture bug, and assists with large custom maps that don't utilise level streaming.\n\n" +
-                "If you have a low-end system, it may be more preferable to keep this setting to \"Default\".", 
+                "If you have a low-end system, it may be more preferable to keep this setting to \"Default\".",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowMinLODInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Minimum LOD Information", 
-                "Minimum LOD size controls the lowest quality texture mipmap that will be loaded. Range: 1-4096 (Unreal Engine 3 has a max limit of 4096).", 
+            DialogHelper.ShowMessage("Minimum LOD Information",
+                "Minimum LOD size controls the lowest quality texture mipmap that will be loaded. Range: 1-4096 (Unreal Engine 3 has a max limit of 4096).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowMaxLODInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Maximum LOD Information", 
-                "Maximum LOD size controls the highest quality texture mipmap that will be loaded. Range: 1-4096 (Unreal Engine 3 has a max limit of 4096).", 
+            DialogHelper.ShowMessage("Maximum LOD Information",
+                "Maximum LOD size controls the highest quality texture mipmap that will be loaded. Range: 1-4096 (Unreal Engine 3 has a max limit of 4096).",
                 DialogHelper.MessageType.Information);
         }
 
         private void ShowLODBiasInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("LOD Bias Information", 
+            DialogHelper.ShowMessage("LOD Bias Information",
                 "Adjusts the distance at which different texture mipmaps are loaded. A higher bias value results in lower resolution texture mipmaps being shown sooner " +
                 "as the player moves away from the texture surface and vice versa. A minimum bias of 0 (highest quality, shows only the maximum resolution LOD) " +
-                "and a maximum bias of 12 (lowest quality) can be entered.", 
+                "and a maximum bias of 12 (lowest quality) can be entered.",
                 DialogHelper.MessageType.Information);
         }
 
@@ -4789,9 +5536,9 @@ namespace MirrorsEdgeTweaks
 
             if (!File.Exists(tdInputIniPath))
             {
-                DialogHelper.ShowMessage("Error", 
+                DialogHelper.ShowMessage("Error",
                     $"Cannot edit mouse smoothing, 'TdInput.ini' file is missing from \"{tdInputIniPath}\".\n\n" +
-                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.", 
+                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.",
                     DialogHelper.MessageType.Error);
                 return;
             }
@@ -4816,7 +5563,7 @@ namespace MirrorsEdgeTweaks
 
             FileAttributes attributes = File.GetAttributes(iniPath);
             bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-            
+
             if (wasReadOnly)
             {
                 File.SetAttributes(iniPath, attributes & ~FileAttributes.ReadOnly);
@@ -4825,7 +5572,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string[] lines = File.ReadAllLines(iniPath);
-                
+
                 for (int i = 0; i < lines.Length; i++)
                 {
                     if (lines[i].Contains('='))
@@ -4856,7 +5603,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string[] lines = File.ReadAllLines(tdInputIniPath);
-                
+
                 foreach (string line in lines)
                 {
                     if (line.Contains('='))
@@ -4886,8 +5633,8 @@ namespace MirrorsEdgeTweaks
 
         private void ShowMouseSmoothingInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Mouse Smoothing Information", 
-                "Mouse smoothing will variably adjust your mouse sensitivity, generally making it more inconsistent. It is recommended to disable mouse smoothing for a better experience.", 
+            DialogHelper.ShowMessage("Mouse Smoothing Information",
+                "Mouse smoothing will variably adjust your mouse sensitivity, generally making it more inconsistent. It is recommended to disable mouse smoothing for a better experience.",
                 DialogHelper.MessageType.Information);
         }
 
@@ -4914,7 +5661,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 bool enabled = selectedItem.Content.ToString() == "Enabled";
-                
+
                 if (enabled)
                 {
                     var result = await DialogHelper.ShowConfirmationAsync(
@@ -4922,7 +5669,7 @@ namespace MirrorsEdgeTweaks
                         "Warning: Enabling uniform sensitivity is banned in official Mirror's Edge speedrun categories. " +
                         "Only enable this if you are playing casually.\n\n" +
                         "Do you want to continue?");
-                    
+
                     if (!result)
                     {
                         _isInitializingGraphicsSettings = true;
@@ -4943,10 +5690,10 @@ namespace MirrorsEdgeTweaks
 
                 HideProgress();
 
-                string message = enabled 
-                    ? "Uniform sensitivity enabled. Mouse sensitivity will now remain consistent regardless of vertical view angle." 
+                string message = enabled
+                    ? "Uniform sensitivity enabled. Mouse sensitivity will now remain consistent regardless of vertical view angle."
                     : "Uniform sensitivity disabled (default behavior restored).";
-                
+
                 DialogHelper.ShowMessage("Success", message, DialogHelper.MessageType.Success);
             }
             catch (Exception ex)
@@ -4960,7 +5707,7 @@ namespace MirrorsEdgeTweaks
         {
             FileAttributes attributes = File.GetAttributes(tdGamePackagePath);
             bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-            
+
             if (wasReadOnly)
             {
                 File.SetAttributes(tdGamePackagePath, attributes & ~FileAttributes.ReadOnly);
@@ -4985,12 +5732,12 @@ namespace MirrorsEdgeTweaks
                 updateRotationFunc.Load<UObjectRecordStream>();
 
                 long floatOffset = FindRotSpeedModFloatOffset(updateRotationFunc);
-                
+
                 if (floatOffset == -1)
                     throw new Exception("Could not locate the rotation speed modifier float in UpdateRotation function.");
 
                 byte[] data = File.ReadAllBytes(tdGamePackagePath);
-                
+
                 float currentValue = BitConverter.ToSingle(data, (int)floatOffset);
                 if (Math.Abs(currentValue - 16384f) > 0.1f && Math.Abs(currentValue - 66536f) > 0.1f)
                 {
@@ -5088,11 +5835,11 @@ namespace MirrorsEdgeTweaks
 
         private void ShowUniformSensitivityInfo_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("Uniform Sensitivity Information", 
+            DialogHelper.ShowMessage("Uniform Sensitivity Information",
                 "Warning: Enabling uniform sensitivity is banned in official Mirror's Edge speedrun categories. " +
                 "Only enable this if you are playing casually.\n\n" +
                 "When pitching the camera up or down greater than a 63° angle from the horizon, horizontal camera sensitivity is reduced by 60%. " +
-                "Enabling the uniform sensitivity option ensures the sensitivity is consistent at all vertical angles.", 
+                "Enabling the uniform sensitivity option ensures the sensitivity is consistent at all vertical angles.",
                 DialogHelper.MessageType.Information);
         }
 
@@ -5102,9 +5849,9 @@ namespace MirrorsEdgeTweaks
 
             if (!File.Exists(tdInputIniPath))
             {
-                DialogHelper.ShowMessage("Error", 
+                DialogHelper.ShowMessage("Error",
                     $"Cannot modify sensitivity, 'TdInput.ini' file is missing from \"{tdInputIniPath}\".\n\n" +
-                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.", 
+                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.",
                     DialogHelper.MessageType.Error);
                 return;
             }
@@ -5124,15 +5871,15 @@ namespace MirrorsEdgeTweaks
                 }
 
                 double calculatedValue = (360 * 2.54) / (cm360 * dpi * 0.1538);
-                
+
                 ApplySensitivityMultiplier(tdInputIniPath, calculatedValue);
-                
+
                 SaveSettingsToIni();
-                
-                DialogHelper.ShowMessage("Success", 
+
+                DialogHelper.ShowMessage("Success",
                     $"Sensitivity multiplier set to {calculatedValue:F6}\n\n" +
                     $"Based on {dpi} DPI and {cm360} cm/360°\n\n" +
-                    "Important: Please ensure mouse smoothing is disabled and FOV-agnostic sensitivity is enabled (if applicable) for consistent sensitivity behaviour.", 
+                    "Important: Please ensure mouse smoothing is disabled and FOV-agnostic sensitivity is enabled (if applicable) for consistent sensitivity behaviour.",
                     DialogHelper.MessageType.Success);
             }
             catch (Exception ex)
@@ -5147,9 +5894,9 @@ namespace MirrorsEdgeTweaks
 
             if (!File.Exists(tdInputIniPath))
             {
-                DialogHelper.ShowMessage("Error", 
+                DialogHelper.ShowMessage("Error",
                     $"Cannot modify sensitivity, 'TdInput.ini' file is missing from \"{tdInputIniPath}\".\n\n" +
-                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.", 
+                    "Please ensure you have launched Mirror's Edge at least once so that this file can be created.",
                     DialogHelper.MessageType.Error);
                 return;
             }
@@ -5157,14 +5904,14 @@ namespace MirrorsEdgeTweaks
             try
             {
                 ApplySensitivityMultiplier(tdInputIniPath, null);
-                
+
                 DpiTextBox.Text = string.Empty;
                 Cm360TextBox.Text = string.Empty;
-                
+
                 SaveSettingsToIni();
-                
-                DialogHelper.ShowMessage("Success", 
-                    "Sensitivity behaviour reset to default.", 
+
+                DialogHelper.ShowMessage("Success",
+                    "Sensitivity behaviour reset to default.",
                     DialogHelper.MessageType.Success);
             }
             catch (Exception ex)
@@ -5182,7 +5929,7 @@ namespace MirrorsEdgeTweaks
 
             FileAttributes attributes = File.GetAttributes(iniPath);
             bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-            
+
             if (wasReadOnly)
             {
                 File.SetAttributes(iniPath, attributes & ~FileAttributes.ReadOnly);
@@ -5195,27 +5942,27 @@ namespace MirrorsEdgeTweaks
                 string formattedMultiplier = calculatedValue.HasValue
                     ? calculatedValue.Value.ToString("F6", CultureInfo.InvariantCulture)
                     : string.Empty;
-                
+
                 for (int i = 0; i < lines.Length; i++)
                 {
                     string trimmedLine = lines[i].Trim();
-                    
+
                     if (trimmedLine == "[TdGame.TdPlayerInputConsole]")
                     {
                         inCorrectSection = true;
                         continue;
                     }
-                    
+
                     if (trimmedLine.StartsWith("[") && trimmedLine.EndsWith("]"))
                     {
                         inCorrectSection = false;
                         continue;
                     }
-                    
+
                     if (inCorrectSection && lines[i].Contains('='))
                     {
                         string key = lines[i].Split('=')[0].Trim();
-                        
+
                         if (key == "MaxSensitivityMultiplier")
                         {
                             if (calculatedValue.HasValue)
@@ -5251,12 +5998,12 @@ namespace MirrorsEdgeTweaks
 
         private void ShowCm360Info_Click(object sender, RoutedEventArgs e)
         {
-            DialogHelper.ShowMessage("cm/360° Converter Information", 
+            DialogHelper.ShowMessage("cm/360° Converter Information",
                 "Converts your real-world mouse sensitivity (measured in centimeters per 360° turn) into Mirror's Edge sensitivity values.\n\n" +
                 "1. Enter your mouse DPI\n" +
                 "2. Enter your desired cm/360° (how many centimeters you want to move your mouse for a full 360° turn)\n" +
                 "3. Check the 'Apply' box to calculate and apply the sensitivity\n\n" +
-                "Please be aware that adjusting your sensitivity in-game will have no effect while this is enabled. Click the 'Reset' button to restore the default sensitivity behaviour.", 
+                "Please be aware that adjusting your sensitivity in-game will have no effect while this is enabled. Click the 'Reset' button to restore the default sensitivity behaviour.",
                 DialogHelper.MessageType.Information);
         }
 
@@ -5376,14 +6123,14 @@ namespace MirrorsEdgeTweaks
                 await Task.Run(() =>
                 {
                     string cookedPcPath = Path.Combine(_config.GameDirectoryPath!, "TdGame", "CookedPC");
-                    
+
                     if (!Directory.Exists(cookedPcPath))
                     {
                         throw new DirectoryNotFoundException($"CookedPC directory not found at: {cookedPcPath}");
                     }
 
                     string[] tsLocFiles = Directory.GetFiles(cookedPcPath, "Ts_LOC_*.upk");
-                    
+
                     if (tsLocFiles.Length == 0)
                     {
                         throw new FileNotFoundException("No Ts_LOC_*.upk files found in CookedPC directory.");
@@ -5410,7 +6157,7 @@ namespace MirrorsEdgeTweaks
                         string countryCode = fileName.Split('_').Last().Substring(0, 3).ToUpper();
 
                         byte[]? replacement = GetGamepadReplacement(countryCode, buttonType);
-                        
+
                         if (replacement == null)
                         {
                             continue;
@@ -5532,7 +6279,7 @@ namespace MirrorsEdgeTweaks
         {
             FileAttributes attributes = File.GetAttributes(tdGamePackagePath);
             bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-            
+
             if (wasReadOnly)
             {
                 File.SetAttributes(tdGamePackagePath, attributes & ~FileAttributes.ReadOnly);
@@ -5554,7 +6301,7 @@ namespace MirrorsEdgeTweaks
                 }
 
                 string defaultObjectName = $"Default__{controlsSettingsClass.Name}";
-                
+
                 var defaultObject = package.Objects
                     .FirstOrDefault(o => o.Name == defaultObjectName);
 
@@ -5588,7 +6335,7 @@ namespace MirrorsEdgeTweaks
 
                 bool shouldSwap = (buttonType == "ps3" && currentPcPath.Contains("Xbox", StringComparison.OrdinalIgnoreCase)) ||
                                   (buttonType == "xbox" && currentPcPath.Contains("PS3", StringComparison.OrdinalIgnoreCase));
-                
+
                 if (!shouldSwap)
                 {
                     return;
@@ -5736,12 +6483,12 @@ namespace MirrorsEdgeTweaks
                 _isLoadingKeybinds = true;
 
                 string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
-                
+
                 if (!File.Exists(tdInputPath))
                     return;
 
                 string[] lines = File.ReadAllLines(tdInputPath);
-                
+
                 bool inPlayerInput = false;
                 foreach (string line in lines)
                 {
@@ -5750,10 +6497,10 @@ namespace MirrorsEdgeTweaks
                         inPlayerInput = line.Trim() == "[Engine.PlayerInput]";
                         continue;
                     }
-                    
+
                     if (!inPlayerInput)
                         continue;
-                    
+
                     if (line.Contains("Command=\"RestartLevel\""))
                     {
                         int nameStart = line.IndexOf("Name=\"") + 6;
@@ -5962,7 +6709,7 @@ namespace MirrorsEdgeTweaks
                     e.Handled = false;
                     return;
                 }
-                
+
                 if (e.ChangedButton == System.Windows.Input.MouseButton.Left && _keybindTextBoxJustFocused)
                 {
                     _keybindTextBoxJustFocused = false;
@@ -5974,7 +6721,7 @@ namespace MirrorsEdgeTweaks
             e.Handled = true;
 
             string ue3Key;
-            
+
             // map mouse button to UE3 key name
             switch (e.ChangedButton)
             {
@@ -6016,7 +6763,7 @@ namespace MirrorsEdgeTweaks
                 }
 
                 targetTextBox.Text = ue3Key;
-                
+
                 if (targetTextBox.Name == "RestartLevelKeyTextBox")
                 {
                     await UpdateKeybind("RestartLevel", ue3Key);
@@ -6099,7 +6846,7 @@ namespace MirrorsEdgeTweaks
         private async void KeybindTextBox_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
         {
             e.Handled = true;
-            
+
             if (_isLoadingKeybinds)
                 return;
 
@@ -6124,7 +6871,7 @@ namespace MirrorsEdgeTweaks
                 }
 
                 textBox.Text = ue3Key;
-                
+
                 if (textBox.Name == "RestartLevelKeyTextBox")
                 {
                     await UpdateKeybind("RestartLevel", ue3Key);
@@ -6207,18 +6954,18 @@ namespace MirrorsEdgeTweaks
         private async void KeybindTextBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
             e.Handled = true;
-            
+
             if (_isLoadingKeybinds)
                 return;
 
             var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
-            
+
             if (key == System.Windows.Input.Key.Back || key == System.Windows.Input.Key.Delete)
             {
                 if (sender is System.Windows.Controls.TextBox clearTextBox)
                 {
                     clearTextBox.Text = string.Empty;
-                    
+
                     if (clearTextBox.Name == "RestartLevelKeyTextBox")
                     {
                         await RemoveKeybind("RestartLevel");
@@ -6290,7 +7037,7 @@ namespace MirrorsEdgeTweaks
                 }
                 return;
             }
-            
+
             if (key == System.Windows.Input.Key.LeftCtrl || key == System.Windows.Input.Key.RightCtrl ||
                 key == System.Windows.Input.Key.LeftAlt || key == System.Windows.Input.Key.RightAlt ||
                 key == System.Windows.Input.Key.LeftShift || key == System.Windows.Input.Key.RightShift ||
@@ -6317,7 +7064,7 @@ namespace MirrorsEdgeTweaks
             if (sender is System.Windows.Controls.TextBox textBox)
             {
                 textBox.Text = ue3Key;
-                
+
                 if (textBox.Name == "RestartLevelKeyTextBox")
                 {
                     await UpdateKeybind("RestartLevel", ue3Key);
@@ -6394,12 +7141,12 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
-                
+
                 if (!File.Exists(tdInputPath))
                 {
-                    DialogHelper.ShowMessage("Error", 
+                    DialogHelper.ShowMessage("Error",
                         $"Cannot set keybind, 'TdInput.ini' file is missing from \"{tdInputPath}\".\n\n" +
-                        "Please ensure you have launched Mirror's Edge at least once so that this file can be created.", 
+                        "Please ensure you have launched Mirror's Edge at least once so that this file can be created.",
                         DialogHelper.MessageType.Error);
                     return;
                 }
@@ -6422,12 +7169,12 @@ namespace MirrorsEdgeTweaks
                             foundSection = true;
                             continue;
                         }
-                        
+
                         if (foundSection && lines[i].Trim().StartsWith("[") && lines[i].Trim().EndsWith("]"))
                         {
                             break;
                         }
-                        
+
                         if (foundSection && lines[i].Contains("Bindings=") && lines[i].Contains($"Name=\"{key}\""))
                         {
                             int cmdStart = lines[i].IndexOf("Command=\"") + 9;
@@ -6451,7 +7198,7 @@ namespace MirrorsEdgeTweaks
                         {
                             foundSection = true;
                         }
-                        
+
                         if (foundSection && lines[i].Contains("bEnableMouseSmoothing"))
                         {
                             mouseSmoothingIndex = i;
@@ -6481,7 +7228,7 @@ namespace MirrorsEdgeTweaks
 
                     FileAttributes attributes = File.GetAttributes(tdInputPath);
                     bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-                    
+
                     if (wasReadOnly)
                     {
                         File.SetAttributes(tdInputPath, attributes & ~FileAttributes.ReadOnly);
@@ -6497,11 +7244,11 @@ namespace MirrorsEdgeTweaks
 
                 if (conflictingCommand != null)
                 {
-                    DialogHelper.ShowMessage("Duplicate Key Binding", 
+                    DialogHelper.ShowMessage("Duplicate Key Binding",
                         $"The key '{key}' is already bound to the command '{conflictingCommand}'.\n\n" +
-                        "Please choose a different key or remove the existing binding in TdInput.ini first.", 
+                        "Please choose a different key or remove the existing binding in TdInput.ini first.",
                         DialogHelper.MessageType.Warning);
-                    
+
                     if (command == "RestartLevel")
                     {
                         await Dispatcher.InvokeAsync(() => RestartLevelKeyTextBox.Text = string.Empty);
@@ -6563,7 +7310,7 @@ namespace MirrorsEdgeTweaks
                         await Dispatcher.InvokeAsync(() => DeleteViewedActorKeyTextBox.Text = string.Empty);
                     }
                 }
-                
+
                 if (conflictingCommand == null)
                 {
                     // need to add exec flags to these functions, by default they are not executable via keybinds
@@ -6615,7 +7362,7 @@ namespace MirrorsEdgeTweaks
                         {
                             string existingCommand = line.Substring(commandStart, commandEnd - commandStart);
 
-                            if (existingCommand != "EnableGodMode" && 
+                            if (existingCommand != "EnableGodMode" &&
                                 !existingCommand.Contains("bGodMode"))
                             {
                                 conflictingCommand = existingCommand;
@@ -6629,7 +7376,7 @@ namespace MirrorsEdgeTweaks
                 {
                     DialogHelper.ShowMessage("Duplicate Key Binding",
                         $"The key '{key}' is already bound to the command '{conflictingCommand}'.\n\n" +
-                        "Please choose a different key or remove the existing binding in TdInput.ini first.", 
+                        "Please choose a different key or remove the existing binding in TdInput.ini first.",
                         DialogHelper.MessageType.Warning);
                     await Dispatcher.InvokeAsync(() => GodModeKeyTextBox.Text = string.Empty);
                     return;
@@ -6645,7 +7392,7 @@ namespace MirrorsEdgeTweaks
                 for (int i = 0; i < lines.Length; i++)
                 {
                     var line = lines[i];
-                    
+
                     if (line.Trim().StartsWith("["))
                     {
                         inPlayerInput = line.Trim() == "[Engine.PlayerInput]";
@@ -6730,7 +7477,7 @@ namespace MirrorsEdgeTweaks
                     return;
 
                 var lines = await Task.Run(() => File.ReadAllLines(tdInputPath));
-                var modifiedLines = lines.Where(line => 
+                var modifiedLines = lines.Where(line =>
                     !line.Contains("Command=\"EnableGodMode\"") &&
                     !line.Contains("Name=\"EnableGodMode\"") &&
                     !line.Contains("Name=\"DisableGodMode\"")).ToList();
@@ -6787,7 +7534,7 @@ namespace MirrorsEdgeTweaks
                         {
                             string existingCommand = line.Substring(commandStart, commandEnd - commandStart);
 
-                            if (existingCommand != "ShowTriggersAndVolumes" && 
+                            if (existingCommand != "ShowTriggersAndVolumes" &&
                                 !existingCommand.Contains("show collision"))
                             {
                                 conflictingCommand = existingCommand;
@@ -6820,7 +7567,7 @@ namespace MirrorsEdgeTweaks
                 for (int i = 0; i < lines.Length; i++)
                 {
                     var line = lines[i];
-                    
+
                     if (line.Trim().StartsWith("["))
                     {
                         inPlayerInput = line.Trim() == "[Engine.PlayerInput]";
@@ -6905,7 +7652,7 @@ namespace MirrorsEdgeTweaks
                     return;
 
                 var lines = await Task.Run(() => File.ReadAllLines(tdInputPath));
-                var modifiedLines = lines.Where(line => 
+                var modifiedLines = lines.Where(line =>
                     !line.Contains("Command=\"ShowTriggersAndVolumes\"") &&
                     !line.Contains("Name=\"ShowTriggersAndVolumes\"") &&
                     !line.Contains("Name=\"HideTriggersAndVolumes\"")).ToList();
@@ -6938,7 +7685,7 @@ namespace MirrorsEdgeTweaks
                     return;
 
                 string tdGamePath = Path.Combine(_config.GameDirectoryPath, "TdGame", "CookedPC", "TdGame.u");
-                
+
                 if (!File.Exists(tdGamePath))
                     return;
 
@@ -6949,36 +7696,36 @@ namespace MirrorsEdgeTweaks
                     {
                         package = UnrealLoader.LoadPackage(tdGamePath, FileAccess.Read);
                         package?.InitializePackage();
-                        
+
                         if (package == null)
                             return;
-                        
+
                         var function = package.Objects
                             .OfType<UFunction>()
-                            .FirstOrDefault(f => f.Name == functionName && 
+                            .FirstOrDefault(f => f.Name == functionName &&
                                                 f.Outer != null && f.Outer.Name == className);
-                        
+
                         if (function == null)
                             return;
-                        
+
                         if (function.FunctionFlags.HasFlag(UELib.Flags.FunctionFlag.Exec))
                             return;
-                        
+
                         var functionExport = function.ExportTable;
                         if (functionExport == null)
                             return;
-                        
+
                         byte[] data = File.ReadAllBytes(tdGamePath);
-                        
+
                         ulong currentFlagsValue = function.FunctionFlags;
                         uint uelibFlags = (uint)currentFlagsValue;
                         byte[] uelibFlagsBytes = BitConverter.GetBytes(uelibFlags);
-                        
+
                         long serialStart = functionExport.SerialOffset;
                         long uelibFlagsOffset = -1;
                         long wideSearchStart = Math.Max(0, serialStart - 1000);
                         long wideSearchEnd = Math.Min(data.Length - 4, serialStart + functionExport.SerialSize + 1000);
-                        
+
                         for (long i = wideSearchStart; i <= wideSearchEnd - 4; i++)
                         {
                             bool match = true;
@@ -6990,39 +7737,39 @@ namespace MirrorsEdgeTweaks
                                     break;
                                 }
                             }
-                            
+
                             if (match)
                             {
                                 long relativeOffset = i - serialStart;
-                                
+
                                 if (relativeOffset >= 0 && relativeOffset < functionExport.SerialSize)
                                 {
                                     uelibFlagsOffset = i;
                                 }
                             }
                         }
-                        
+
                         if (uelibFlagsOffset == -1)
                             return;
-                        
+
                         const uint UE3_EXEC_FLAG = 0x00000200;
                         uint newUelibFlags = uelibFlags | UE3_EXEC_FLAG;
                         byte[] newUelibFlagsBytes = BitConverter.GetBytes(newUelibFlags);
                         Array.Copy(newUelibFlagsBytes, 0, data, uelibFlagsOffset, 4);
-                        
+
                         package.Dispose();
                         package = null;
-                        
+
                         FileAttributes attributes = File.GetAttributes(tdGamePath);
                         bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-                        
+
                         if (wasReadOnly)
                         {
                             File.SetAttributes(tdGamePath, attributes & ~FileAttributes.ReadOnly);
                         }
-                        
+
                         File.WriteAllBytes(tdGamePath, data);
-                        
+
                         if (wasReadOnly)
                         {
                             File.SetAttributes(tdGamePath, attributes);
@@ -7044,7 +7791,7 @@ namespace MirrorsEdgeTweaks
             try
             {
                 string tdInputPath = Path.Combine(GetDocumentsTdGamePath(), "Config", "TdInput.ini");
-                
+
                 if (!File.Exists(tdInputPath))
                 {
                     return;
@@ -7067,7 +7814,7 @@ namespace MirrorsEdgeTweaks
                     {
                         FileAttributes attributes = File.GetAttributes(tdInputPath);
                         bool wasReadOnly = (attributes & FileAttributes.ReadOnly) == FileAttributes.ReadOnly;
-                        
+
                         if (wasReadOnly)
                         {
                             File.SetAttributes(tdInputPath, attributes & ~FileAttributes.ReadOnly);
@@ -7243,7 +7990,7 @@ namespace MirrorsEdgeTweaks
                 if (sender is System.Windows.Controls.TextBox clearTextBox)
                 {
                     clearTextBox.Text = string.Empty;
-                    
+
                     if (clearTextBox.Name == "ScrollDownMacroKeyTextBox")
                     {
                         UpdateMacroKeybind("ScrollDownMacroKey", "");
@@ -7295,7 +8042,7 @@ namespace MirrorsEdgeTweaks
             if (sender is System.Windows.Controls.TextBox textBox)
             {
                 textBox.Text = ue3Key;
-                
+
                 if (textBox.Name == "ScrollDownMacroKeyTextBox")
                 {
                     UpdateMacroKeybind("ScrollDownMacroKey", ue3Key);
@@ -7638,7 +8385,7 @@ namespace MirrorsEdgeTweaks
                 }
 
                 bool enableDelay = MainMenuDelayComboBox.SelectedIndex == 0;
-                
+
                 if (!enableDelay)
                 {
                     bool isPatched = _unlockedConfigsViewModel.UnlockedConfigsStatus == "Patched";
@@ -7670,11 +8417,11 @@ namespace MirrorsEdgeTweaks
                             if (trimmedLine.StartsWith("TimeTillStartButton="))
                             {
                                 string newValue = enableDelay ? "4" : "0";
-                                
+
                                 int indentLength = lines[i].Length - lines[i].TrimStart().Length;
                                 string indent = lines[i].Substring(0, indentLength);
                                 lines[i] = indent + "TimeTillStartButton=" + newValue;
-                                
+
                                 modified = true;
                                 break;
                             }
@@ -7822,7 +8569,7 @@ namespace MirrorsEdgeTweaks
                                 int indentLength = lines[i].Length - lines[i].TrimStart().Length;
                                 string indent = lines[i].Substring(0, indentLength);
                                 lines[i] = indent + "RaceCountDownTime=" + newValue;
-                                
+
                                 modified = true;
                                 break;
                             }
@@ -7871,7 +8618,7 @@ namespace MirrorsEdgeTweaks
                 if (File.Exists(tdGamePath))
                 {
                     string tdGameVersion = TdGameVersionDetector.DetectTdGameVersion(tdGamePath);
-                    
+
                     if (tdGameVersion == "Original" || tdGameVersion == "Time Trials Timer Fix (by Nulaft)")
                     {
                         DialogHelper.ShowMessage("Warning",
@@ -8043,7 +8790,7 @@ namespace MirrorsEdgeTweaks
                     if (trimmedLine.StartsWith("Language="))
                     {
                         string value = trimmedLine.Substring("Language=".Length).Trim();
-                        
+
                         int index = value.ToLower() switch
                         {
                             "cze" => 0,  // Čeština (CZE)
@@ -8103,7 +8850,7 @@ namespace MirrorsEdgeTweaks
                 if (File.Exists(exePath))
                 {
                     var exeFileInfo = new FileInfo(exePath);
-                    if (exeFileInfo.Length == 31946072) // Steam version
+                    if (exeFileInfo.Length == SteamMirrorsEdgeExeSize) // Steam version
                     {
                         DialogHelper.ShowMessage("Warning",
                             $"You're currently using the Steam version of Mirror's Edge, which does not support language changes made outside the Steam client. " +
@@ -8410,7 +9157,7 @@ namespace MirrorsEdgeTweaks
                     DownloadProgressBar.IsIndeterminate = true;
                     StatusTextBlock.Text = "Extracting language files...";
                 });
-                
+
                 await Task.Run(() =>
                 {
                     System.IO.Compression.ZipFile.ExtractToDirectory(tempZipPath, extractPath, true);
@@ -8418,7 +9165,7 @@ namespace MirrorsEdgeTweaks
 
                 File.Delete(tempZipPath);
 
-                await ReapplyHighResUIFixIfNeeded();
+                await ReapplyHighResUIFixIfNeeded(showDialogs: false);
 
                 await Dispatcher.InvokeAsync(() =>
                 {
@@ -8438,45 +9185,66 @@ namespace MirrorsEdgeTweaks
             }
         }
 
-        private async Task ReapplyHighResUIFixIfNeeded()
+        private async Task ReapplyHighResUIFixIfNeeded(bool? wasUIScalingActiveOverride = null, bool showDialogs = true)
         {
             try
             {
                 if (string.IsNullOrEmpty(_config.GameDirectoryPath))
                     return;
 
-                bool wasUIScalingActive = _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
+                bool wasUIScalingActive = wasUIScalingActiveOverride ?? _uiScalingService.IsUIScalingActive(_config.GameDirectoryPath);
 
+                ResolutionHelper.Resolution? selectedResolution = null;
                 if (ResolutionComboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selectedItem &&
-                    selectedItem.Tag is ResolutionHelper.Resolution selectedResolution)
+                    selectedItem.Tag is ResolutionHelper.Resolution comboResolution)
                 {
-                    if (_uiScalingService.ShouldOfferUIScaling(selectedResolution.Width))
-                    {
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            DownloadProgressBar.IsIndeterminate = true;
-                            DownloadProgressBar.Visibility = Visibility.Visible;
-                            StatusTextBlock.Text = wasUIScalingActive ? "Reapplying high-res UI fix..." : "Resetting UI scaling...";
-                        });
-
-                        await Task.Run(async () =>
-                        {
-                            if (wasUIScalingActive)
-                            {
-                                await _uiScalingService.ApplyUIScalingAsync(selectedResolution.Width, selectedResolution.Height, _config.GameDirectoryPath, null);
-                            }
-                            else
-                            {
-                                await _uiScalingService.RollbackUIScalingToDefaultsAsync(selectedResolution.Width, selectedResolution.Height, _config.GameDirectoryPath, null);
-                            }
-                        });
-
-                        await Dispatcher.InvokeAsync(() =>
-                        {
-                            UpdateHighResFixStatus(selectedResolution.Width, wasUIScalingActive);
-                        });
-                    }
+                    selectedResolution = comboResolution;
                 }
+                else
+                {
+                    selectedResolution = GetCurrentResolutionFromConfig();
+                }
+
+                if (selectedResolution == null || !_uiScalingService.ShouldOfferUIScaling(selectedResolution.Width))
+                {
+                    return;
+                }
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    DownloadProgressBar.IsIndeterminate = true;
+                    DownloadProgressBar.Visibility = Visibility.Visible;
+                    StatusTextBlock.Text = wasUIScalingActive ? "Reapplying high-res UI fix..." : "Resetting UI scaling...";
+                });
+
+                await Task.Run(async () =>
+                {
+                    if (wasUIScalingActive)
+                    {
+                        await _uiScalingService.ApplyUIScalingAsync(
+                            selectedResolution.Width,
+                            selectedResolution.Height,
+                            _config.GameDirectoryPath,
+                            null,
+                            showDialogs);
+                    }
+                    else
+                    {
+                        await _uiScalingService.RollbackUIScalingToDefaultsAsync(
+                            selectedResolution.Width,
+                            selectedResolution.Height,
+                            _config.GameDirectoryPath,
+                            null,
+                            showDialogs);
+                    }
+                });
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    UpdateHighResFixStatus(selectedResolution.Width, wasUIScalingActive);
+                    DownloadProgressBar.Visibility = Visibility.Collapsed;
+                    DownloadProgressBar.IsIndeterminate = false;
+                });
             }
             catch (Exception ex)
             {
@@ -8522,7 +9290,7 @@ namespace MirrorsEdgeTweaks
                         if (trimmedLine.StartsWith("DeviceName="))
                         {
                             string value = trimmedLine.Substring("DeviceName=".Length).Trim();
-                            
+
                             if (value == "Generic Hardware")
                             {
                                 AudioBackendComboBox.SelectedIndex = 0;
@@ -8556,8 +9324,8 @@ namespace MirrorsEdgeTweaks
             try
             {
                 bool isOpenALDefault = AudioBackendComboBox.SelectedIndex == 0;
-                
-                string downloadUrl = isOpenALDefault 
+
+                string downloadUrl = isOpenALDefault
                     ? "https://github.com/softsoundd/MirrorsEdgeTweaks/raw/refs/heads/main/Downloads/OpenAL.zip"
                     : "https://github.com/softsoundd/MirrorsEdgeTweaks/raw/refs/heads/main/Downloads/OpenALSoft.zip";
 
@@ -8734,7 +9502,7 @@ namespace MirrorsEdgeTweaks
                     DownloadProgressBar.IsIndeterminate = true;
                     StatusTextBlock.Text = "Extracting audio backend files...";
                 });
-                
+
                 await Task.Run(() =>
                 {
                     System.IO.Compression.ZipFile.ExtractToDirectory(tempZipPath, extractPath, true);
@@ -8765,11 +9533,11 @@ namespace MirrorsEdgeTweaks
             DialogHelper.ShowMessage("Audio Backend Information",
                 "The default OpenAL implementation in Mirror's Edge has sampling issues where the initial attack/transients of footstep sounds, " +
                 "hand placements, etc. are lost due to the audio fading in. Upgrading to OpenAL Soft is highly recommended and fixes these issues in Mirror's Edge as well " +
-                "as providing a noticeable boost in audio clarity.\n\nMirror's Edge by default allows a maximum of 32 simultaneous audio sources. " +
+                "as providing a noticeable boost in audio clarity.\n\nToggling the OpenAL Soft upgrade will also increase the " +
+                "number of allowed simultaneous audio sources to 256. Mirror's Edge by default allows a maximum of 32 simultaneous audio sources. " +
                 "This consequently results in audio being abruptly skipped if there are over 32 sound sources playing in the game at any given moment. " +
                 "This is most noticeable during high intensity scenarios with lots of gunfire, but can be experienced in other areas too " +
-                "(the game has a lot of foley and occluded sound sources that can reach this limit quickly). Toggling the OpenAL Soft upgrade will also increase the " +
-                "number of simultaneous audio sources from 32 to 256 to resolve these issues.",
+                "(the game has a lot of foley and occluded sound sources that can reach this limit quickly).",
                 DialogHelper.MessageType.Information);
         }
 
