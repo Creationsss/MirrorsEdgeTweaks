@@ -2,20 +2,20 @@
 
 A tool for modding, tweaking settings and providing game fixes for Mirror's Edge.
 
-![Version](https://img.shields.io/badge/version-4.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-4.4.2-blue.svg)
 ![.NET](https://img.shields.io/badge/.NET-8.0-purple.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)
 
-<img width="636" height="793" alt="image" src="https://github.com/user-attachments/assets/65ff91c4-13ec-41f4-a480-6f1def75484e" />
+<img width="636" height="793" alt="image" src="https://github.com/user-attachments/assets/f79fcda7-cfc6-40d5-96e2-77e58b896255" />
 
 ## Features
 - Developer console unlocker
 - Command line argument unlocker
-- Unlocked configs patch (a nicer alternative to [MEMLA](https://github.com/btbd/memla))
+- Unlocked configs patch (a persistent alternative to [MEMLA](https://github.com/btbd/memla))
 - TdGame version selector
 - Tweaks Scripts installer (custom UnrealScript package including cheats and trainer functions, Softimer, etc.)
 - Persistent FOV with additional viewmodel and input fixes
-- Customisable aspect ratios with HOR+/VERT+ scaling
+- Unlocked aspect ratios with HOR+/VERT+ scaling
 - High-res UI fix for resolutions greater than 1080p
 - Highly configurable graphics settings
 - Adjustable PhysX cloth simulation rates
@@ -23,7 +23,7 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
 - Xbox/PS3 gamepad button prompt swapper
 - Uniform mouse sensitivity, cm/360° converter
 - Game language switcher
-- OpenAL Soft audio upgrader
+- OpenAL Soft audio upgrader + bespoke UE3 HRTF support
 - Various other QoL
 
 ## Requirements
@@ -35,7 +35,7 @@ A tool for modding, tweaking settings and providing game fixes for Mirror's Edge
 ## Installation
 
 1. Download the latest release from the [Releases](../../releases) page
-2. Extract the zip contents to a location of your choice
+2. Extract the zip to a location of your choice
 3. Run `Mirror's Edge Tweaks.exe`
 4. Click **"Select Game Directory"** and navigate to your Mirror's Edge installation folder. Typical install locations:
    - Steam: `C:\Program Files (x86)\Steam\steamapps\common\mirrors edge`
@@ -97,8 +97,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Changelog
 
 Refer to the [CHANGELOG](CHANGELOG.md) file for changes.
-
----
-
-Made with ❤️ by softsoundd
-

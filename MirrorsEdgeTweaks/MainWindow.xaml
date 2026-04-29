@@ -146,7 +146,7 @@
 
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -172,12 +172,12 @@
 
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Developer Console:" VerticalAlignment="Center"
-                                           FontWeight="Bold" Margin="0,0,20,0"/>
+                                           FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="InstallConsoleButton" Content="Install"
                                             Click="InstallConsole_Click"
@@ -211,12 +211,12 @@
                                 <StackPanel>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="179"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <TextBlock Grid.Column="0" Text="Tweaks Scripts:" VerticalAlignment="Center"
-                                                   FontWeight="Bold" Margin="0,0,47,0"/>
+                                                   FontWeight="Bold" MinWidth="129" Margin="0,0,10,0"/>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                                             <Button x:Name="InstallTweaksScriptsButton" Content="Install"
                                                     Click="InstallTweaksScripts_Click"
@@ -244,12 +244,12 @@
                                     <StackPanel x:Name="TweaksScriptsUIInstallDependencyPanel" Margin="0,10,0,0">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="179"/>
                                                 <ColumnDefinition Width="*"/>
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Grid.Column="0" Text="Tweaks Scripts UI:" VerticalAlignment="Center"
-                                                       FontWeight="Bold" Margin="0,0,29,0"/>
+                                                       FontWeight="Bold" MinWidth="129" Margin="0,0,10,0"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                                 <Button x:Name="InstallTweaksScriptsUIButton" Content="Install"
                                                         Click="InstallTweaksScriptsUI_Click"
@@ -296,12 +296,12 @@
 
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="Unlocked Configs:" VerticalAlignment="Center"
-                                           FontWeight="Bold" Margin="0,0,28,0"/>
+                                           FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="PatchConfigsButton" Content="Patch"
                                             Click="PatchConfigs_Click"
@@ -333,12 +333,12 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="190"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Launch Arguments:" VerticalAlignment="Center"
-                                               FontWeight="Bold" Margin="0,0,20,0"/>
+                                               FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
                                     <TextBox x:Name="LaunchArgumentsTextBox"
                                              Grid.Row="1"
                                              Grid.Column="0"
@@ -389,6 +389,129 @@
                                     </Border>
                                 </Grid>
                             </StackPanel>
+
+                            <!-- Other Patches -->
+                            <Expander Margin="0,25,0,0"
+                                      IsExpanded="False"
+                                      HorizontalAlignment="Stretch"
+                                      Background="Transparent"
+                                      BorderThickness="0"
+                                      Style="{StaticResource MaterialDesignExpander}"
+                                      materialDesign:ExpanderAssist.HorizontalHeaderPadding="0">
+                                <Expander.Header>
+                                    <TextBlock Text="Other Patches"
+                                               FontWeight="SemiBold" FontSize="13"
+                                               Foreground="{DynamicResource MaterialDesignBodyDark}"/>
+                                </Expander.Header>
+                                <StackPanel Margin="0,10,0,0">
+
+                                    <!-- Enable Logging -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="190"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Enable Logging:" VerticalAlignment="Center"
+                                                   FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button x:Name="PatchLoggingButton" Content="Patch"
+                                                    Click="PatchLogging_Click"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}" Width="70" Margin="0,0,10,0"/>
+                                            <Button x:Name="UnpatchLoggingButton" Content="Unpatch"
+                                                    Click="UnpatchLogging_Click"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Width="87"/>
+                                            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                                                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                                    BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="10,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock x:Name="LoggingPatchStatusTextBlock"
+                                                           Text="N/A"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
+                                                ToolTip="Information"
+                                                Margin="5,0,0,0"
+                                                Click="ShowLoggingInfo_Click">
+                                            <materialDesign:PackIcon Kind="Information" />
+                                        </Button>
+                                    </Grid>
+
+                                    <!-- Multi-instance -->
+                                    <Grid Margin="0,15,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="190"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Multi-instance:" VerticalAlignment="Center"
+                                                   FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button x:Name="PatchMultiInstanceButton" Content="Patch"
+                                                    Click="PatchMultiInstance_Click"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}" Width="70" Margin="0,0,10,0"/>
+                                            <Button x:Name="UnpatchMultiInstanceButton" Content="Unpatch"
+                                                    Click="UnpatchMultiInstance_Click"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Width="87"/>
+                                            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                                                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                                    BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="10,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock x:Name="MultiInstancePatchStatusTextBlock"
+                                                           Text="N/A"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
+                                                ToolTip="Information"
+                                                Margin="5,0,0,0"
+                                                Click="ShowMultiInstanceInfo_Click">
+                                            <materialDesign:PackIcon Kind="Information" />
+                                        </Button>
+                                    </Grid>
+
+                                    <!-- Ambiguous Bypass -->
+                                    <Grid Margin="0,15,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="190"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="Ambiguous Bypass:" VerticalAlignment="Center"
+                                                   FontWeight="Bold" MinWidth="140" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button x:Name="PatchAmbiguousBypassButton" Content="Patch"
+                                                    Click="PatchAmbiguousBypass_Click"
+                                                    Style="{StaticResource MaterialDesignRaisedButton}" Width="70" Margin="0,0,10,0"/>
+                                            <Button x:Name="UnpatchAmbiguousBypassButton" Content="Unpatch"
+                                                    Click="UnpatchAmbiguousBypass_Click"
+                                                    Style="{StaticResource MaterialDesignOutlinedButton}" Width="87"/>
+                                            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                                                    BorderBrush="{DynamicResource MaterialDesignDivider}"
+                                                    BorderThickness="1" CornerRadius="4" Padding="8,2" Margin="10,0,0,0"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock x:Name="AmbiguousBypassPatchStatusTextBlock"
+                                                           Text="N/A"
+                                                           FontSize="12"
+                                                           FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource MaterialDesignBodyLight}"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
+                                                ToolTip="Information"
+                                                Margin="5,0,0,0"
+                                                Click="ShowAmbiguousBypassInfo_Click">
+                                            <materialDesign:PackIcon Kind="Information" />
+                                        </Button>
+                                    </Grid>
+
+                                </StackPanel>
+                            </Expander>
                             
                             <Separator Margin="0,20" Style="{StaticResource MaterialDesignDarkSeparator}"/>
                             
@@ -402,7 +525,7 @@
                             <!-- Game Language Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -439,7 +562,7 @@
                             <!-- Audio Backend Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -452,6 +575,7 @@
                                           SelectionChanged="AudioBackendComboBox_SelectionChanged">
                                     <ComboBoxItem Content="OpenAL (default)" Foreground="Black"/>
                                     <ComboBoxItem Content="OpenAL Soft (modern)" Foreground="Black"/>
+                                    <ComboBoxItem Content="OpenAL Soft (HRTF)" Foreground="Black"/>
                                 </ComboBox>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
@@ -494,65 +618,43 @@
                                            Foreground="White" VerticalAlignment="Center"/>
                             </Border>
                             
-                            <Border Margin="0,0,0,0"
+                            <Border Margin="0,-10,0,0"
                                     BorderBrush="{DynamicResource MaterialDesignDivider}"
                                     BorderThickness="1"
                                     CornerRadius="6"
                                     Padding="10,10,10,8"
                                     Background="#0D000000">
-                                <StackPanel>
-                                    <Grid>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <Grid Grid.Row="0">
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
 
-                                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                            <TextBlock Text="Field of Vision" FontWeight="Bold" Margin="0,0,0,5"/>
-                                            <TextBox x:Name="NewFovValue" Width="100" HorizontalAlignment="Left"
-                                                     Style="{StaticResource MaterialDesignTextBox}"/>
-                                            <Border BorderBrush="{DynamicResource MaterialDesignDivider}"
-                                                    BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,15,0,0">
-                                                <StackPanel>
-                                                    <TextBlock>
-                                                        <Run Text="Value: "/>
-                                                        <Run x:Name="CurrentFovValue" Text="N/A" FontWeight="SemiBold"/>
-                                                    </TextBlock>
-                                                    <TextBlock x:Name="HorPlusStatus" Text="Scaling: N/A"
-                                                               Foreground="Gray" FontStyle="Italic" Margin="0,2,0,0"/>
-                                                    <TextBlock x:Name="ClippingPlaneStatus" Text="Clipping Fix: N/A"
-                                                               Foreground="Gray" FontStyle="Italic" Margin="0,2,0,0"/>
-                                                    <TextBlock x:Name="FovAgnosticSensStatus" Text="Sensitivity: N/A"
-                                                               Foreground="Gray" FontStyle="Italic" Margin="0,2,0,0"/>
-                                                </StackPanel>
-                                            </Border>
-                                        </StackPanel>
-
-                                        <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                            <TextBlock Text="Aspect Ratio" FontWeight="Bold" Margin="0,0,0,5"/>
+                                        <StackPanel Grid.Column="0" Margin="0,0,20,0">
+                                            <TextBlock Text="Field of Vision (FOV)" FontWeight="Bold" Margin="0,0,0,10"/>
                                             <StackPanel Orientation="Horizontal">
-                                                <TextBox x:Name="AspectRatioWidth" Width="50"
-                                                         Style="{StaticResource MaterialDesignTextBox}"/>
-                                                <TextBlock Text=" : " VerticalAlignment="Center" Margin="5,0"/>
-                                                <TextBox x:Name="AspectRatioHeight" Width="50"
-                                                         Style="{StaticResource MaterialDesignTextBox}"/>
+                                                <TextBox x:Name="NewFovValue" Width="80"
+                                                         Style="{StaticResource MaterialDesignTextBox}"
+                                                         TextChanged="NewFovValue_TextChanged"/>
+                                                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center">
+                                                    <Run Text="Current: "/>
+                                                    <Run x:Name="CurrentFovValue" Text="N/A" FontWeight="SemiBold"/>
+                                                </TextBlock>
+                                                <TextBlock x:Name="HorPlusStatus" Text=""
+                                                           Foreground="Gray" FontStyle="Italic"
+                                                           VerticalAlignment="Center" Margin="8,0,0,0"/>
                                             </StackPanel>
-                                            <Border BorderBrush="{DynamicResource MaterialDesignDivider}"
-                                                    BorderThickness="1" CornerRadius="4" Padding="8" Margin="0,15,0,0">
-                                                <StackPanel>
-                                                    <TextBlock>
-                                                        <Run Text="Value: "/>
-                                                        <Run x:Name="CurrentAspectRatioValue" Text="N/A" FontWeight="SemiBold"/>
-                                                    </TextBlock>
-                                                    <TextBlock x:Name="CommonAspectRatioValue" Text=""
-                                                               Foreground="Gray" FontStyle="Italic" Margin="0,2,0,0"/>
-                                                </StackPanel>
-                                            </Border>
                                         </StackPanel>
 
-                                        <StackPanel Grid.Column="2" Orientation="Horizontal" 
-                                                    VerticalAlignment="Top" Margin="20,0,0,0">
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal"
+                                                    VerticalAlignment="Top">
                                             <Button Content="Apply"
                                                 Click="ApplyChanges_Click"
                                                 Padding="20,10"
@@ -567,7 +669,17 @@
                                             </Button>
                                         </StackPanel>
                                     </Grid>
-                                </StackPanel>
+
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,10,0,0">
+                                        <CheckBox x:Name="FovAgnosticSensCheckBox"
+                                                  Content="FOV-agnostic sensitivity"
+                                                  IsChecked="False"/>
+                                        <CheckBox x:Name="CompensatedClipCheckBox"
+                                                  Content="Compensated near clipping plane"
+                                                  IsChecked="True"
+                                                  Margin="20,0,0,0"/>
+                                    </StackPanel>
+                                </Grid>
                             </Border>
 
                             <TextBlock Text="Note: All following settings below set TdEngine.ini to read-only so Mirror's Edge does not overwrite your changes on launch. As a result, any video settings changed in-game will not be saved."
@@ -579,7 +691,7 @@
 
                             <Grid Margin="0,20,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -613,7 +725,7 @@
                             <!-- Render Resolution Slider -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -621,7 +733,7 @@
                                 <TextBlock Grid.Column="0" Text="Render Resolution:" VerticalAlignment="Center"
                                            FontWeight="Bold" Margin="0,0,20,0"/>
                                 <Slider x:Name="RenderResolutionSlider" Grid.Column="1" 
-                                        Minimum="25" Maximum="100" Value="100" 
+                                        Minimum="25" Maximum="200" Value="100" 
                                         TickFrequency="1" IsSnapToTickEnabled="True"
                                         VerticalAlignment="Center"
                                         ValueChanged="RenderResolutionSlider_ValueChanged"/>
@@ -638,7 +750,7 @@
                             <!-- VSync -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -664,7 +776,7 @@
                             <StackPanel Margin="0,20,0,0">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="200"/>
+                                        <ColumnDefinition Width="190"/>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="Auto"/>
@@ -691,7 +803,7 @@
                                         <materialDesign:PackIcon Kind="Information" />
                                     </Button>
                                 </Grid>
-                                <StackPanel Orientation="Horizontal" Margin="200,0,0,10">
+                                <StackPanel Orientation="Horizontal" Margin="190,0,0,10">
                                     <Button Content="Apply" 
                                             Style="{StaticResource MaterialDesignRaisedButton}"
                                             Click="ApplyFPSLimit_Click"
@@ -705,7 +817,7 @@
                             <!-- Anti-Aliasing -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -734,7 +846,7 @@
                             <!-- PhysX -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -759,7 +871,7 @@
                             <!-- PhysX FPS -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -795,7 +907,7 @@
                             <!-- Texture Detail Preset -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -824,7 +936,7 @@
                             <!-- Graphics Quality Preset -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -863,7 +975,7 @@
                             <!-- Anisotropic Filtering -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -891,7 +1003,7 @@
                             <!-- Static Decals -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -916,7 +1028,7 @@
                             <!-- Dynamic Decals -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -941,7 +1053,7 @@
                             <!-- Radial Blur -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -966,7 +1078,7 @@
                             <!-- Streak Effect -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -991,7 +1103,7 @@
                             <!-- Bloom & DoF -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1016,7 +1128,7 @@
                             <!-- Lens Flare -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1041,7 +1153,7 @@
                             <!-- Dynamic Lights -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1066,7 +1178,7 @@
                             <!-- Dynamic Shadows -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1091,7 +1203,7 @@
                             <!-- HQ Dynamic Shadows -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1116,7 +1228,7 @@
                             <!-- Lightmaps -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1141,7 +1253,7 @@
                             <!-- Sun Haze -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1166,7 +1278,7 @@
                             <!-- Tone Mapping -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1191,7 +1303,7 @@
                             <!-- Texture Management -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1224,7 +1336,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -1250,7 +1362,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -1276,7 +1388,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="Auto"/>
@@ -1333,7 +1445,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1358,7 +1470,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1383,7 +1495,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1407,7 +1519,7 @@
                                     <Button Content="Apply" 
                                             Style="{StaticResource MaterialDesignRaisedButton}"
                                             VerticalAlignment="Center"
-                                            Margin="0,0,5,0"
+                                            Margin="0,0,10,0"
                                             Click="ApplyCm360_Click"/>
                                     <Button Content="Reset" 
                                             Style="{StaticResource MaterialDesignOutlinedButton}"
@@ -1425,7 +1537,7 @@
                             
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1461,7 +1573,7 @@
                             <!-- Restart Level Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1471,14 +1583,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1490,7 +1600,7 @@
                             <!-- Load Last Checkpoint Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1500,14 +1610,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1519,7 +1627,7 @@
                             <!-- Restart Time Trial Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1529,14 +1637,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1548,7 +1654,7 @@
                             <!-- Reset Reaction Time Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1558,14 +1664,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1577,7 +1681,7 @@
                             <!-- God Mode Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1587,14 +1691,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1606,7 +1708,7 @@
                             <!-- Kill Bots Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1616,14 +1718,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1635,7 +1735,7 @@
                             <!-- Third Person Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1645,14 +1745,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1664,7 +1762,7 @@
                             <!-- Toggle HUD Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1674,14 +1772,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1693,7 +1789,7 @@
                             <!-- FPS Indicator Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1703,14 +1799,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1722,7 +1816,7 @@
                             <!-- Level Stats Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1732,14 +1826,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1751,7 +1843,7 @@
                             <!-- Triggers & Volumes Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1761,14 +1853,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1780,7 +1870,7 @@
                             <!-- Show Collision Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1790,14 +1880,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1819,7 +1907,7 @@
                             <!-- Noclip Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1829,14 +1917,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1848,7 +1934,7 @@
                             <!-- Save State Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1858,14 +1944,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1877,7 +1961,7 @@
                             <!-- Load Saved State Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1887,14 +1971,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1906,7 +1988,7 @@
                             <!-- Save Timer Location Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1916,14 +1998,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1935,7 +2015,7 @@
                             <!-- Delete Viewed Actor Keybind -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1945,14 +2025,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="KeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="KeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -1973,7 +2051,7 @@
                             <!-- Scroll Down Macro Key -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -1983,14 +2061,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="MacroKeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="MacroKeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -2002,7 +2078,7 @@
                             <!-- Scroll Up Macro Key -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -2012,14 +2088,12 @@
                                          VerticalAlignment="Center"
                                          Style="{StaticResource MaterialDesignTextBox}"
                                          Foreground="Black"
-                                         materialDesign:HintAssist.Hint="Enter key (or backspace to clear)"
-                                         materialDesign:TextFieldAssist.CharacterCounterVisibility="Hidden"
-                                         MaxLength="20"
-                                         PreviewKeyDown="MacroKeybindTextBox_PreviewKeyDown"
-                                         PreviewTextInput="KeybindTextBox_PreviewTextInput"
-                                         PreviewMouseDown="KeybindTextBox_PreviewMouseDown"
-                                         PreviewMouseWheel="KeybindTextBox_PreviewMouseWheel"
-                                         LostFocus="MacroKeybindTextBox_LostFocus"/>
+                                         materialDesign:HintAssist.Hint="Click to set keybind"
+                                         IsReadOnly="True"
+                                         IsReadOnlyCaretVisible="False"
+                                         Focusable="False"
+                                         Cursor="Hand"
+                                         PreviewMouseLeftButtonDown="KeybindField_Click"/>
                                 <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
                                         ToolTip="Information"
                                         Margin="5,0,0,0"
@@ -2041,7 +2115,7 @@
                             <!-- Intro Video Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -2067,7 +2141,7 @@
                             <!-- Main Menu Delay Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -2093,7 +2167,7 @@
                             <!-- Time Trial Countdown Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
@@ -2118,6 +2192,32 @@
                                 </Button>
                             </Grid>
 
+                            <!-- Skip Online Check Setting -->
+                            <Grid Margin="0,15,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="190"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="Skip Online Check:" VerticalAlignment="Center"
+                                           FontWeight="Bold" Margin="0,0,20,0" Foreground="Black"/>
+                                <ComboBox Grid.Column="1" x:Name="SkipOnlineCheckComboBox"
+                                          VerticalAlignment="Center"
+                                          Style="{StaticResource MaterialDesignComboBox}"
+                                          Foreground="Black"
+                                          SelectionChanged="SkipOnlineCheckComboBox_SelectionChanged"
+>
+                                    <ComboBoxItem Content="Disabled" Foreground="Black"/>
+                                    <ComboBoxItem Content="Enabled" Foreground="Black"/>
+                                </ComboBox>
+                                <Button Grid.Column="2" Style="{StaticResource MaterialDesignIconButton}"
+                                        ToolTip="Information"
+                                        Margin="5,0,0,0"
+                                        Click="ShowSkipOnlineCheckInfo_Click">
+                                    <materialDesign:PackIcon Kind="Information" />
+                                </Button>
+                            </Grid>
+
                             <Separator Margin="0,20" Style="{StaticResource MaterialDesignDarkSeparator}"/>
 
                             <!-- Community Mods Header -->
@@ -2130,7 +2230,7 @@
                             <!-- Cinematic Faith Model Setting -->
                             <Grid Margin="0,15,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="200"/>
+                                    <ColumnDefinition Width="190"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
